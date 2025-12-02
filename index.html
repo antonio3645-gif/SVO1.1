@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gerenciador de Orçamentos</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;700&family=Inter:wght@400;500;600;700&family=Lato:wght@400;700&family=Merriweather:wght@400;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+  <script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "firebase/": "https://aistudiocdn.com/firebase@^12.6.0/"
+  }
+}
+</script>
+<style>
+  :root {
+    /* Neutral Colors (Static) */
+    --color-neutral-50: #f8fafc;
+    --color-neutral-100: #f1f5f9;
+    --color-neutral-200: #e2e8f0;
+    --color-neutral-300: #cbd5e1;
+    --color-neutral-400: #94a3b8;
+    --color-neutral-500: #64748b;
+    --color-neutral-600: #475569;
+    --color-neutral-700: #334155;
+    --color-neutral-800: #1e293b;
+    --color-neutral-900: #0f172a;
+    /* Accent Color for Editing (Static) */
+    --color-accent-100: #fef3c7; /* amber-100 */
+    --color-accent-200: #fde68a; /* amber-200 */
+    --color-accent-500: #f59e0b; /* amber-500 */
+    --color-accent-600: #d97706; /* amber-600 */
+    --color-accent-700: #b45309; /* amber-700 */
+    --color-accent-800: #92400e; /* amber-800 */
+    /* Destructive Color for Deleting (Static) */
+    --color-destructive-100: #fee2e2; /* red-100 */
+    --color-destructive-200: #fecaca; /* red-200 */
+    --color-destructive-500: #ef4444; /* red-500 */
+    --color-destructive-600: #dc2626; /* red-600 */
+    --color-destructive-700: #b91c1c; /* red-700 */
+    --color-destructive-800: #991b1b; /* red-800 */
+  }
+  .theme-sky {
+    --color-primary-50: #f0f9ff;
+    --color-primary-100: #e0f2fe;
+    --color-primary-500: #0ea5e9;
+    --color-primary-600: #0284c7;
+    --color-primary-700: #0369a1;
+    --color-primary-800: #075985;
+  }
+  .theme-emerald {
+    --color-primary-50: #ecfdf5;
+    --color-primary-100: #d1fae5;
+    --color-primary-500: #10b981;
+    --color-primary-600: #059669;
+    --color-primary-700: #047857;
+    --color-primary-800: #065f46;
+  }
+  .theme-amber {
+    --color-primary-50: #fffbeb;
+    --color-primary-100: #fef3c7;
+    --color-primary-500: #f59e0b;
+    --color-primary-600: #d97706;
+    --color-primary-700: #b45309;
+    --color-primary-800: #92400e;
+  }
+  .theme-purple {
+    --color-primary-50: #faf5ff;
+    --color-primary-100: #f3e8ff;
+    --color-primary-500: #a855f7;
+    --color-primary-600: #9333ea;
+    --color-primary-700: #7e22ce;
+    --color-primary-800: #6b21a8;
+  }
+  .theme-slate {
+    --color-primary-50: #f8fafc;
+    --color-primary-100: #f1f5f9;
+    --color-primary-500: #64748b;
+    --color-primary-600: #475569;
+    --color-primary-700: #334155;
+    --color-primary-800: #1e293b;
+  }
+
+  .font-Inter body, .font-Inter { font-family: 'Inter', sans-serif; }
+  .font-Roboto body, .font-Roboto { font-family: 'Roboto', sans-serif; }
+  .font-Lato body, .font-Lato { font-family: 'Lato', sans-serif; }
+  .font-Merriweather body, .font-Merriweather { font-family: 'Merriweather', serif; }
+  .font-Inconsolata body, .font-Inconsolata { font-family: 'Inconsolata', monospace; }
+
+</style>
+</head>
+  <body class="bg-gray-100">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+  </body>
+</html>
