@@ -11,6 +11,7 @@ import { UserPlusIcon } from './components/icons/UserPlusIcon';
 import { PackagePlusIcon } from './components/icons/PackagePlusIcon';
 import { PriceTagIcon } from './components/icons/PriceTagIcon';
 import { SettingsIcon } from './components/icons/SettingsIcon';
+import { safeSetItem, compressImage } from './utils/storage';
 
 type Tab = 'clients' | 'products' | 'quotes' | 'settings';
 
@@ -51,6 +52,8 @@ const App: React.FC = () => {
     sectors: [],
     theme: 'sky',
     font: 'Inter',
+    enableSequentialNumber: true,
+    nextQuoteNumber: 1,
   });
   const [quoteToEdit, setQuoteToEdit] = useState<SavedQuote | null>(null);
 
@@ -66,7 +69,25 @@ const App: React.FC = () => {
 
     // 2. Load Data from LocalStorage
     const storedClients = localStorage.getItem('clients');
-    if (storedClients) setClients(JSON.parse(storedClients));
+    if (storedClients) {
+      const parsedClients: Client[] = JSON.parse(storedClients);
+      let maxNum = 0;
+      parsedClients.forEach(c => {
+        if (c.code) {
+          const num = parseInt(c.code, 10);
+          if (!isNaN(num) && num > maxNum) maxNum = num;
+        }
+      });
+      const migratedClients = parsedClients.map((c) => {
+        if (!c.code) {
+          maxNum += 1;
+          return { ...c, code: String(maxNum).padStart(4, '0') };
+        }
+        return c;
+      });
+      setClients(migratedClients);
+      safeSetItem('clients', JSON.stringify(migratedClients));
+    }
 
     const storedProducts = localStorage.getItem('products');
     if (storedProducts) {
@@ -83,7 +104,14 @@ const App: React.FC = () => {
     if (storedQuotes) setSavedQuotes(JSON.parse(storedQuotes));
 
     const storedSettings = localStorage.getItem('quoteSettings');
-    if (storedSettings) setQuoteSettings(JSON.parse(storedSettings));
+    if (storedSettings) {
+      const parsed = JSON.parse(storedSettings);
+      setQuoteSettings({
+        enableSequentialNumber: true,
+        nextQuoteNumber: 1,
+        ...parsed,
+      });
+    }
 
     const storedLogo = localStorage.getItem('logo');
     if (storedLogo) setLogo(storedLogo);
@@ -105,7 +133,7 @@ const App: React.FC = () => {
   // Persist Tab
   useEffect(() => {
       if (isAuthenticated) {
-        localStorage.setItem('activeTab', activeTab);
+        safeSetItem('activeTab', activeTab);
       }
   }, [activeTab, isAuthenticated]);
 
@@ -132,7 +160,7 @@ const App: React.FC = () => {
     
     // Save Auth
     const authConfig = { username: setupUser, password: setupPass };
-    localStorage.setItem('auth_config', JSON.stringify(authConfig));
+    safeSetItem('auth_config', JSON.stringify(authConfig));
     
     // Save Company Name
     const newCompanyInfo: CompanyInfo = {
@@ -144,7 +172,7 @@ const App: React.FC = () => {
         phone: '',
         email: ''
     };
-    localStorage.setItem('companyInfo', JSON.stringify(newCompanyInfo));
+    safeSetItem('companyInfo', JSON.stringify(newCompanyInfo));
     setCompanyInfo(newCompanyInfo);
 
     setIsSetup(true);
@@ -163,16 +191,24 @@ const App: React.FC = () => {
   // --- Data Handlers ---
 
   const addClient = (client: Omit<Client, 'id'>) => {
-    const newClient = { ...client, id: crypto.randomUUID() };
+    let clientCode = client.code;
+    if (!clientCode) {
+      const maxCode = clients.reduce((max, c) => {
+        const num = parseInt(c.code || '0', 10);
+        return !isNaN(num) && num > max ? num : max;
+      }, 0);
+      clientCode = String(maxCode + 1).padStart(4, '0');
+    }
+    const newClient = { ...client, code: clientCode, id: crypto.randomUUID() };
     const updatedClients = [...clients, newClient];
     setClients(updatedClients);
-    localStorage.setItem('clients', JSON.stringify(updatedClients));
+    safeSetItem('clients', JSON.stringify(updatedClients));
   };
 
   const updateClient = (updatedClient: Client) => {
     const updatedClients = clients.map((c) => (c.id === updatedClient.id ? updatedClient : c));
     setClients(updatedClients);
-    localStorage.setItem('clients', JSON.stringify(updatedClients));
+    safeSetItem('clients', JSON.stringify(updatedClients));
   };
 
   const deleteClient = (id: string) => {
@@ -180,7 +216,7 @@ const App: React.FC = () => {
     if (clientToDelete && window.confirm(`Tem certeza que deseja excluir o cliente "${clientToDelete.name}"?`)) {
       const updatedClients = clients.filter((c) => c.id !== id);
       setClients(updatedClients);
-      localStorage.setItem('clients', JSON.stringify(updatedClients));
+      safeSetItem('clients', JSON.stringify(updatedClients));
     }
   };
 
@@ -188,20 +224,20 @@ const App: React.FC = () => {
     const newProduct = { ...product, id: crypto.randomUUID() };
     const updatedProducts = [...products, newProduct];
     setProducts(updatedProducts);
-    localStorage.setItem('products', JSON.stringify(updatedProducts));
+    safeSetItem('products', JSON.stringify(updatedProducts));
   };
 
   const addMultipleProducts = (newProducts: Omit<Product, 'id'>[]) => {
       const productsWithIds = newProducts.map(p => ({ ...p, id: crypto.randomUUID() }));
       const updatedProducts = [...products, ...productsWithIds];
       setProducts(updatedProducts);
-      localStorage.setItem('products', JSON.stringify(updatedProducts));
+      safeSetItem('products', JSON.stringify(updatedProducts));
   };
 
   const updateProduct = (updatedProduct: Product) => {
     const updatedProducts = products.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
     setProducts(updatedProducts);
-    localStorage.setItem('products', JSON.stringify(updatedProducts));
+    safeSetItem('products', JSON.stringify(updatedProducts));
   };
 
   const deleteProduct = (id: string) => {
@@ -211,7 +247,7 @@ const App: React.FC = () => {
     if (window.confirm(`Tem certeza que deseja excluir o item "${productToDelete.name}"?`)) {
         const updatedProducts = products.filter((p) => p.id !== id);
         setProducts(updatedProducts);
-        localStorage.setItem('products', JSON.stringify(updatedProducts));
+        safeSetItem('products', JSON.stringify(updatedProducts));
     }
   };
 
@@ -237,17 +273,38 @@ const App: React.FC = () => {
         return p;
     });
     setProducts(updatedProducts);
-    localStorage.setItem('products', JSON.stringify(updatedProducts));
+    safeSetItem('products', JSON.stringify(updatedProducts));
 
-    // Save Quote
-    const newQuote = { 
+    // Determine quote number
+    let assignedNumber = quoteData.number;
+    let currentSettings = { ...quoteSettings };
+    if (currentSettings.enableSequentialNumber !== false && !assignedNumber) {
+        assignedNumber = currentSettings.nextQuoteNumber || 1;
+        const newNextNumber = assignedNumber + 1;
+        currentSettings = { ...currentSettings, nextQuoteNumber: newNextNumber };
+        setQuoteSettings(currentSettings);
+        safeSetItem('quoteSettings', JSON.stringify(currentSettings));
+    }
+
+    // Save Quote - Sanitize product images in quote items to prevent quota issues
+    const sanitizedItems = quoteData.items.map(i => ({
+      ...i,
+      product: {
+        ...i.product,
+        image: i.product.image && i.product.image.length > 50000 ? undefined : i.product.image
+      }
+    }));
+
+    const newQuote: SavedQuote = { 
         ...quoteData, 
+        items: sanitizedItems,
+        number: assignedNumber,
         id: crypto.randomUUID(),
         createdAt: quoteData.createdAt || new Date().toISOString() 
     };
     const updatedQuotes = [...savedQuotes, newQuote];
     setSavedQuotes(updatedQuotes);
-    localStorage.setItem('savedQuotes', JSON.stringify(updatedQuotes));
+    safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
     alert('Orçamento salvo com sucesso!');
   };
 
@@ -255,7 +312,7 @@ const App: React.FC = () => {
     if(window.confirm('Tem certeza que deseja excluir este orçamento?')) {
         const updatedQuotes = savedQuotes.filter((q) => q.id !== id);
         setSavedQuotes(updatedQuotes);
-        localStorage.setItem('savedQuotes', JSON.stringify(updatedQuotes));
+        safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
     }
   };
 
@@ -266,14 +323,15 @@ const App: React.FC = () => {
             setQuoteToEdit(quote);
             const updatedQuotes = savedQuotes.filter(q => q.id !== quoteId);
             setSavedQuotes(updatedQuotes);
-            localStorage.setItem('savedQuotes', JSON.stringify(updatedQuotes));
+            safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
         }
       }
   };
 
-  const handleSetLogo = (logoDataUrl: string) => {
-    setLogo(logoDataUrl);
-    localStorage.setItem('logo', logoDataUrl);
+  const handleSetLogo = async (logoDataUrl: string) => {
+    const compressed = await compressImage(logoDataUrl, 500, 300, 0.8);
+    setLogo(compressed);
+    safeSetItem('logo', compressed);
   };
 
   const handleDeleteLogo = () => {
@@ -283,12 +341,12 @@ const App: React.FC = () => {
 
   const handleSetQuoteSettings = (settings: QuoteSettings) => {
     setQuoteSettings(settings);
-    localStorage.setItem('quoteSettings', JSON.stringify(settings));
+    safeSetItem('quoteSettings', JSON.stringify(settings));
   };
 
   const handleSetCompanyInfo = (info: CompanyInfo) => {
     setCompanyInfo(info);
-    localStorage.setItem('companyInfo', JSON.stringify(info));
+    safeSetItem('companyInfo', JSON.stringify(info));
   };
 
   const handleBackup = () => {
@@ -330,30 +388,30 @@ const App: React.FC = () => {
           const data = JSON.parse(text);
           if (data.clients) {
             setClients(data.clients);
-            localStorage.setItem('clients', JSON.stringify(data.clients));
+            safeSetItem('clients', JSON.stringify(data.clients));
           }
           if (data.products) {
             setProducts(data.products);
-            localStorage.setItem('products', JSON.stringify(data.products));
+            safeSetItem('products', JSON.stringify(data.products));
           }
           if (data.savedQuotes) {
             setSavedQuotes(data.savedQuotes);
-            localStorage.setItem('savedQuotes', JSON.stringify(data.savedQuotes));
+            safeSetItem('savedQuotes', JSON.stringify(data.savedQuotes));
           }
           if (data.logo) {
             setLogo(data.logo);
-            localStorage.setItem('logo', data.logo);
+            safeSetItem('logo', data.logo);
           }
           if (data.quoteSettings) {
             setQuoteSettings(data.quoteSettings);
-            localStorage.setItem('quoteSettings', JSON.stringify(data.quoteSettings));
+            safeSetItem('quoteSettings', JSON.stringify(data.quoteSettings));
           }
           if (data.companyInfo) {
             setCompanyInfo(data.companyInfo);
-            localStorage.setItem('companyInfo', JSON.stringify(data.companyInfo));
+            safeSetItem('companyInfo', JSON.stringify(data.companyInfo));
           }
           if (data.auth) {
-              localStorage.setItem('auth_config', JSON.stringify(data.auth));
+              safeSetItem('auth_config', JSON.stringify(data.auth));
           }
           alert("Dados restaurados com sucesso!");
           window.location.reload();
@@ -537,8 +595,8 @@ const App: React.FC = () => {
                     <div className="flex items-center gap-2 w-full sm:w-auto">
                         <nav className="flex-grow sm:flex-grow-0 flex items-center justify-between sm:justify-end gap-1 sm:gap-2 bg-slate-100 p-1 rounded-xl">
                             <TabButton tabName="quotes" label="Orçamentos" Icon={PriceTagIcon} />
-                            <TabButton tabName="clients" label="Clientes" Icon={UserPlusIcon} />
                             <TabButton tabName="products" label="Produtos" Icon={PackagePlusIcon} />
+                            <TabButton tabName="clients" label="Clientes" Icon={UserPlusIcon} />
                             <TabButton tabName="settings" label="Config" Icon={SettingsIcon} />
                             
                             <div className="w-px h-8 bg-slate-300 mx-1 hidden sm:block"></div>

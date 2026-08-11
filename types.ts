@@ -1,6 +1,7 @@
 
 export interface Client {
   id: string;
+  code?: string;
   type: 'physical' | 'juridical';
   name: string;
   cpf?: string;
@@ -56,10 +57,13 @@ export interface QuoteSettings {
   sectors: string[];
   theme: string;
   font: string;
+  enableSequentialNumber?: boolean;
+  nextQuoteNumber?: number;
 }
 
 export interface SavedQuote {
   id: string;
+  number?: number;
   createdAt: string;
   client: Client;
   items: QuoteItem[];

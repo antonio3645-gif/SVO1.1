@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { Product, QuoteSettings, CompanyInfo } from '../types';
+import { compressImage } from '../utils/storage';
 import { PackagePlusIcon } from './icons/PackagePlusIcon';
 import { FileDownIcon } from './icons/FileDownIcon';
 import { FileUpIcon } from './icons/FileUpIcon';
@@ -74,8 +75,10 @@ const Products: React.FC<ProductsProps> = ({
     const file = e.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
         const reader = new FileReader();
-        reader.onloadend = () => {
-            setImage(reader.result as string);
+        reader.onloadend = async () => {
+            const raw = reader.result as string;
+            const compressed = await compressImage(raw, 400, 400, 0.7);
+            setImage(compressed);
         };
         reader.readAsDataURL(file);
     } else {

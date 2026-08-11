@@ -1,5 +1,6 @@
 
 import React, { useState, useRef } from 'react';
+import { compressImage } from '../utils/storage';
 import { UploadIcon } from './icons/UploadIcon';
 import { TrashIcon } from './icons/TrashIcon';
 import { FileDownIcon } from './icons/FileDownIcon';
@@ -74,8 +75,10 @@ const Settings: React.FC<SettingsProps> = ({
     const file = e.target.files?.[0];
     if (file && file.type.startsWith('image/')) {
         const reader = new FileReader();
-        reader.onloadend = () => {
-            onSetLogo(reader.result as string);
+        reader.onloadend = async () => {
+            const raw = reader.result as string;
+            const compressed = await compressImage(raw, 500, 300, 0.8);
+            onSetLogo(compressed);
         };
         reader.onerror = () => {
             alert('Ocorreu um erro ao ler o arquivo.');
@@ -381,6 +384,49 @@ const Settings: React.FC<SettingsProps> = ({
             <h3 className="text-lg font-medium text-slate-700 mb-2">Opções do Orçamento</h3>
              <div className="space-y-6">
                 <div className="flex items-center justify-between">
+                    <span className="flex-grow flex flex-col" id="sequential-number-label">
+                        <span className="text-sm font-medium text-slate-900">Numeração sequencial dos orçamentos</span>
+                        <span className="text-sm text-slate-500">Adiciona uma numeração sequencial automática a cada orçamento gerado (ex: Nº 0001, Nº 0002).</span>
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => onSetQuoteSettings({ ...quoteSettings, enableSequentialNumber: quoteSettings.enableSequentialNumber === false ? true : false })}
+                        className={`${
+                            quoteSettings.enableSequentialNumber !== false ? 'bg-[--color-primary-600]' : 'bg-slate-200'
+                        } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-primary-500]`}
+                        role="switch"
+                        aria-checked={quoteSettings.enableSequentialNumber !== false}
+                        aria-labelledby="sequential-number-label"
+                    >
+                        <span
+                        aria-hidden="true"
+                        className={`${
+                            quoteSettings.enableSequentialNumber !== false ? 'translate-x-5' : 'translate-x-0'
+                        } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
+                        />
+                    </button>
+                </div>
+
+                {quoteSettings.enableSequentialNumber !== false && (
+                    <div className="flex items-center justify-between pl-4 border-l-2 border-[--color-primary-500] py-2 bg-slate-50/50 rounded-r-md">
+                        <span className="flex flex-col">
+                            <label htmlFor="nextQuoteNumber" className="text-sm font-medium text-slate-700">
+                                Próximo número da sequência
+                            </label>
+                            <span className="text-xs text-slate-500">Defina o número inicial ou o próximo número a ser gerado.</span>
+                        </span>
+                        <input
+                            id="nextQuoteNumber"
+                            type="number"
+                            min="1"
+                            value={quoteSettings.nextQuoteNumber || 1}
+                            onChange={(e) => onSetQuoteSettings({ ...quoteSettings, nextQuoteNumber: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                            className="w-28 px-3 py-1.5 border border-slate-300 rounded-md text-sm font-bold text-slate-800 text-center focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
+                        />
+                    </div>
+                )}
+
+                <div className="flex items-center justify-between">
                     <span className="flex-grow flex flex-col" id="discount-label">
                         <span className="text-sm font-medium text-slate-900">Exibir campo de desconto</span>
                         <span className="text-sm text-slate-500">Habilita/desabilita a seção de desconto.</span>
@@ -564,16 +610,29 @@ const Settings: React.FC<SettingsProps> = ({
             </div>
         </div>
 
-        <div className="pt-8 text-center">
-            <h3 className="text-lg font-medium text-slate-700 mb-4">Sobre o Software</h3>
-            <div className="bg-slate-50 rounded-lg p-6 border border-slate-200 inline-block w-full">
-                <p className="text-slate-700 font-semibold text-base mb-2">Desenvolvido por: Antonio Ap. Martins ( Tuico Martins)</p>
-                <p className="text-slate-600 text-sm mb-1">Versão: 2.0</p>
-                <p className="text-slate-600 text-sm mb-3">Ano de Lançamento: 2025</p>
-                <p className="text-slate-600 text-sm mb-1">
-                    Link canal do YouTube: <a href="https://www.youtube.com/channel/UCmD-hqnSegs7xCSdHjKsWUw" target="_blank" rel="noopener noreferrer" className="text-[--color-primary-600] hover:underline break-all">https://www.youtube.com/channel/UCmD-hqnSegs7xCSdHjKsWUw</a>
-                </p>
-                <p className="text-slate-600 text-sm">Contato: 18 996239945</p>
+        <div className="pt-8">
+            <h3 className="text-lg font-medium text-slate-700 mb-4 text-center">Sobre o Software</h3>
+            <div className="max-w-xl mx-auto bg-[#0a0d14] rounded-2xl p-6 sm:p-8 border border-slate-800/80 shadow-2xl space-y-4">
+                <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">DESENVOLVEDOR</span>
+                    <span className="text-sm font-extrabold text-amber-400">Tuico Martins</span>
+                </div>
+                <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">EMPRESA</span>
+                    <span className="text-sm font-extrabold text-sky-400">svosoftware</span>
+                </div>
+                <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">VERSÃO</span>
+                    <span className="text-sm font-extrabold text-white">1.0</span>
+                </div>
+                <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">ANO DE LANÇAMENTO</span>
+                    <span className="text-sm font-extrabold text-white">2026</span>
+                </div>
+                <div className="flex justify-between items-center">
+                    <span className="text-xs font-bold tracking-wider text-slate-400 uppercase">SUPORTE</span>
+                    <a href="mailto:svosoftware@gmail.com" className="text-sm font-extrabold text-sky-400 hover:underline">svosoftware@gmail.com</a>
+                </div>
             </div>
         </div>
       </div>

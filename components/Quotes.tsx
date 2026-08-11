@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { Client, Product, QuoteItem, QuoteSettings, SavedQuote, CompanyInfo } from '../types';
+import { safeSetItem } from '../utils/storage';
 import { FileDownIcon } from './icons/FileDownIcon';
 import { PrinterIcon } from './icons/PrinterIcon';
 import { SaveIcon } from './icons/SaveIcon';
@@ -34,7 +35,11 @@ const Quotes: React.FC<QuotesProps> = ({
       const d = new Date();
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
   });
-  
+  const [quoteTime, setQuoteTime] = useState<string>(() => {
+      const d = new Date();
+      return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  });
+
   // State for Products selection
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const [productQuantity, setProductQuantity] = useState<number>(1);
@@ -51,12 +56,15 @@ const Quotes: React.FC<QuotesProps> = ({
   const [draftExists, setDraftExists] = useState(false);
   const [autoSaveStatus, setAutoSaveStatus] = useState<'saving' | 'saved' | ''>('');
   const [isCurrentQuoteSaved, setIsCurrentQuoteSaved] = useState(false);
-
+  const [editingQuoteNumber, setEditingQuoteNumber] = useState<number | undefined>(undefined);
 
   // State and refs for saved quotes list
+  const [searchTerm, setSearchTerm] = useState('');
+  const [numberFilter, setNumberFilter] = useState('');
   const [nameFilter, setNameFilter] = useState('');
   const [dateFilter, setDateFilter] = useState('');
   const [valueFilter, setValueFilter] = useState('');
+  const [isSavedQuotesModalOpen, setIsSavedQuotesModalOpen] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
 
@@ -69,7 +77,7 @@ const Quotes: React.FC<QuotesProps> = ({
   // Any change to the quote marks it as "unsaved"
   useEffect(() => {
     setIsCurrentQuoteSaved(false);
-  }, [selectedClientId, quoteItems, notes, discount, discountType, quoteDate]);
+  }, [selectedClientId, quoteItems, notes, discount, discountType, quoteDate, quoteTime]);
 
 
   useEffect(() => {
@@ -81,13 +89,20 @@ const Quotes: React.FC<QuotesProps> = ({
     const handler = setTimeout(() => {
         const draft = {
             selectedClientId,
-            quoteItems,
+            quoteItems: quoteItems.map(i => ({
+                ...i,
+                product: {
+                    ...i.product,
+                    image: i.product.image && i.product.image.length > 50000 ? undefined : i.product.image
+                }
+            })),
             notes,
             discount,
             discountType,
-            quoteDate
+            quoteDate,
+            quoteTime,
         };
-        localStorage.setItem('quoteDraft', JSON.stringify(draft));
+        safeSetItem('quoteDraft', JSON.stringify(draft));
         setDraftExists(true);
         setAutoSaveStatus('saved');
         
@@ -98,7 +113,7 @@ const Quotes: React.FC<QuotesProps> = ({
     return () => {
         clearTimeout(handler);
     };
-  }, [selectedClientId, quoteItems, notes, discount, discountType, quoteDate, quoteSettings.autoSave]);
+  }, [selectedClientId, quoteItems, notes, discount, discountType, quoteDate, quoteTime, quoteSettings.autoSave]);
 
   useEffect(() => {
     if (quoteToEdit) {
@@ -107,11 +122,16 @@ const Quotes: React.FC<QuotesProps> = ({
       setNotes(quoteToEdit.notes ?? quoteSettings.defaultNotes ?? '');
       setDiscount(quoteToEdit.discount ?? '0');
       setDiscountType(quoteToEdit.discountType ?? 'fixed');
+      setEditingQuoteNumber(quoteToEdit.number);
       if (quoteToEdit.createdAt) {
-        setQuoteDate(quoteToEdit.createdAt.split('T')[0]);
+        const d = new Date(quoteToEdit.createdAt);
+        if (!isNaN(d.getTime())) {
+          setQuoteDate(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+          setQuoteTime(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
+        }
       }
       clearQuoteToEdit();
-      alert('Orçamento carregado para edição. Faça suas alterações e salve-o como um novo orçamento.');
+      alert('Orçamento carregado para edição. Faça suas alterações e salve-o.');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [quoteToEdit, clearQuoteToEdit, quoteSettings.defaultNotes]);
@@ -127,6 +147,7 @@ const Quotes: React.FC<QuotesProps> = ({
       setDiscount(savedDraft.discount || '0');
       setDiscountType(savedDraft.discountType || 'fixed');
       setQuoteDate(savedDraft.quoteDate || new Date().toISOString().split('T')[0]);
+      if (savedDraft.quoteTime) setQuoteTime(savedDraft.quoteTime);
       alert('Rascunho carregado com sucesso!');
     } else {
       alert('Nenhum rascunho encontrado.');
@@ -216,50 +237,153 @@ const Quotes: React.FC<QuotesProps> = ({
   }, [productsSubtotal, servicesSubtotal]);
 
   const discountAmount = useMemo(() => {
-    if (!quoteSettings.showDiscount) return 0;
     const numericDiscount = parseFloat(discount) || 0;
+    if (numericDiscount <= 0) return 0;
     if (discountType === 'percent') {
       return (subtotal * numericDiscount) / 100;
     }
     return numericDiscount > subtotal ? subtotal : numericDiscount;
-  }, [subtotal, discount, discountType, quoteSettings.showDiscount]);
+  }, [subtotal, discount, discountType]);
 
   const finalTotal = useMemo(() => {
     return subtotal - discountAmount;
   }, [subtotal, discountAmount]);
 
-  const clearQuoteForm = () => {
-    if (quoteItems.length > 0 || selectedClientId || notes !== (quoteSettings.defaultNotes || '')) {
-      if (window.confirm('Tem certeza que deseja limpar o orçamento atual? Todas as informações não salvas serão perdidas.')) {
-        setSelectedClientId('');
-        setQuoteItems([]);
-        setNotes(quoteSettings.defaultNotes || '');
-        setDiscount('0');
-        setDiscountType('fixed');
-        setQuoteDate(() => {
-            const d = new Date();
-            return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-        });
-        localStorage.removeItem('quoteDraft');
-        setDraftExists(false);
-        setIsCurrentQuoteSaved(false);
+  const currentDisplayNumber = useMemo(() => {
+    if (editingQuoteNumber !== undefined) {
+      return editingQuoteNumber;
+    }
+    if (quoteSettings.enableSequentialNumber !== false) {
+      return quoteSettings.nextQuoteNumber || 1;
+    }
+    return undefined;
+  }, [editingQuoteNumber, quoteSettings.enableSequentialNumber, quoteSettings.nextQuoteNumber]);
+
+  const currentSavedQuoteIndex = useMemo(() => {
+    if (editingQuoteNumber !== undefined) {
+      return savedQuotes.findIndex(q => q.number === editingQuoteNumber);
+    }
+    return -1;
+  }, [savedQuotes, editingQuoteNumber]);
+
+  const loadQuoteIntoEditor = (quote: SavedQuote) => {
+    setSelectedClientId(quote.client?.id ?? '');
+    setQuoteItems(quote.items ?? []);
+    setNotes(quote.notes ?? quoteSettings.defaultNotes ?? '');
+    setDiscount(quote.discount ?? '0');
+    setDiscountType(quote.discountType ?? 'fixed');
+    setEditingQuoteNumber(quote.number);
+    if (quote.createdAt) {
+      const d = new Date(quote.createdAt);
+      if (!isNaN(d.getTime())) {
+        setQuoteDate(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+        setQuoteTime(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
+      }
+    }
+    setIsCurrentQuoteSaved(true);
+  };
+
+  const handleFirstQuote = () => {
+    if (savedQuotes.length > 0) {
+      loadQuoteIntoEditor(savedQuotes[0]);
+    }
+  };
+
+  const handlePrevQuote = () => {
+    if (savedQuotes.length === 0) return;
+    if (currentSavedQuoteIndex > 0) {
+      loadQuoteIntoEditor(savedQuotes[currentSavedQuoteIndex - 1]);
+    } else if (currentSavedQuoteIndex === -1) {
+      loadQuoteIntoEditor(savedQuotes[savedQuotes.length - 1]);
+    }
+  };
+
+  const handleNextQuote = () => {
+    if (savedQuotes.length === 0) return;
+    if (currentSavedQuoteIndex >= 0 && currentSavedQuoteIndex < savedQuotes.length - 1) {
+      loadQuoteIntoEditor(savedQuotes[currentSavedQuoteIndex + 1]);
+    }
+  };
+
+  const handleLastQuote = () => {
+    if (savedQuotes.length > 0) {
+      loadQuoteIntoEditor(savedQuotes[savedQuotes.length - 1]);
+    }
+  };
+
+  const handleShowTable = () => {
+    setIsSavedQuotesModalOpen(true);
+  };
+
+  const handleIncluir = () => {
+    setSelectedClientId('');
+    setQuoteItems([]);
+    setNotes(quoteSettings.defaultNotes || '');
+    setDiscount('0');
+    setDiscountType('fixed');
+    setEditingQuoteNumber(undefined);
+    const d = new Date();
+    setQuoteDate(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+    setQuoteTime(String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'));
+    localStorage.removeItem('quoteDraft');
+    setDraftExists(false);
+    setIsCurrentQuoteSaved(false);
+  };
+
+  const handleApagar = () => {
+    if (currentSavedQuoteIndex >= 0 && savedQuotes[currentSavedQuoteIndex]) {
+      const targetQuote = savedQuotes[currentSavedQuoteIndex];
+      if (window.confirm(`Tem certeza que deseja excluir o orçamento Nº ${String(targetQuote.number || 1).padStart(4, '0')}?`)) {
+        deleteQuote(targetQuote.id);
+        handleIncluir();
+      }
+    } else if (quoteItems.length > 0 || selectedClientId) {
+      if (window.confirm("Deseja apagar as informações do orçamento atual?")) {
+        handleIncluir();
       }
     }
   };
 
-  const saveCurrentQuote = (): boolean => {
-    if (isCurrentQuoteSaved) {
-        return true;
-    }
+  const handlePesquisar = () => {
+    setIsSavedQuotesModalOpen(true);
+  };
 
+  const clearQuoteForm = () => {
+    if (quoteItems.length > 0 || selectedClientId || notes !== (quoteSettings.defaultNotes || '')) {
+      if (window.confirm('Tem certeza que deseja limpar o orçamento atual? Todas as informações não salvas serão perdidas.')) {
+        handleIncluir();
+      }
+    }
+  };
+
+  const saveCurrentQuote = (): SavedQuote | null => {
     if (!selectedClient) {
-        alert('Por favor, selecione um cliente para imprimir ou gerar o PDF.');
-        return false;
+        alert('Por favor, selecione um cliente para salvar, imprimir ou gerar o PDF.');
+        return null;
     }
     if (quoteItems.length === 0) {
-        alert('Adicione pelo menos um item ao orçamento para imprimir ou gerar o PDF.');
-        return false;
+        alert('Adicione pelo menos um item ao orçamento para salvar, imprimir ou gerar o PDF.');
+        return null;
     }
+
+    if (isCurrentQuoteSaved) {
+        const lastSaved = savedQuotes.find(q => 
+          q.client.id === selectedClient.id && 
+          q.finalTotal === finalTotal && 
+          q.items.length === quoteItems.length
+        ) || savedQuotes[savedQuotes.length - 1];
+        
+        if (lastSaved) return lastSaved;
+    }
+
+    const assignedNumber = editingQuoteNumber !== undefined 
+      ? editingQuoteNumber 
+      : (quoteSettings.enableSequentialNumber !== false ? (quoteSettings.nextQuoteNumber || 1) : undefined);
+
+    const [year, month, day] = quoteDate.split('-').map(Number);
+    const [hours, minutes] = (quoteTime || '00:00').split(':').map(Number);
+    const dateObj = new Date(year, (month || 1) - 1, day || 1, hours || 0, minutes || 0);
+    const createdAtIso = isNaN(dateObj.getTime()) ? new Date().toISOString() : dateObj.toISOString();
 
     const quoteToSave: Omit<SavedQuote, 'id'> = {
         client: selectedClient,
@@ -272,119 +396,55 @@ const Quotes: React.FC<QuotesProps> = ({
         finalTotal,
         discount,
         discountType,
-        createdAt: new Date(quoteDate).toISOString(), // Use the selected date
+        createdAt: createdAtIso,
+        number: editingQuoteNumber,
     };
 
     saveQuote(quoteToSave);
     setIsCurrentQuoteSaved(true);
-    return true;
+    if (assignedNumber !== undefined) {
+      setEditingQuoteNumber(assignedNumber);
+    }
+
+    return {
+      ...quoteToSave,
+      id: crypto.randomUUID(),
+      number: assignedNumber,
+    };
   };
 
   const handlePrint = () => {
-    if (!saveCurrentQuote()) {
-        return;
-    }
-    const printContent = quoteRef.current;
-    if (printContent) {
-        const originalContents = document.body.innerHTML;
-        const printHtml = printContent.innerHTML;
-        document.body.innerHTML = `<style>
-            body { font-family: sans-serif; }
-            .quote-print { padding: 2rem; }
-            .quote-print h1, .quote-print h2, .quote-print h3 { color: #1e293b; }
-            .quote-print table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-            .quote-print th, .quote-print td { border: 1px solid #e2e8f0; padding: 8px; text-align: left; vertical-align: middle; }
-            .quote-print th { background-color: #f8fafc; }
-            .quote-print .total-row { font-weight: bold; font-size: 1.2rem; }
-            .quote-print .notes-section { margin-top: 2rem; padding: 1rem; border-top: 1px solid #e2e8f0; }
-            .quote-print .notes-section p { white-space: pre-wrap; }
-            .print-hidden { display: none !important; }
-            .print-visible-row { display: table-row !important; }
-            .print-visible-inline { display: inline !important; }
-            .print-date-display { display: inline !important; }
-         </style>` + printHtml;
-        window.print();
-        document.body.innerHTML = originalContents;
-        window.location.reload();
-    }
+    const saved = saveCurrentQuote();
+    if (!saved) return;
+    handlePrintSavedQuote(saved);
   };
 
   const handleExportPDF = async () => {
-    if (!saveCurrentQuote()) {
-        return;
-    }
-
-    const input = quoteRef.current;
-    // @ts-ignore
-    if (!input || !window.html2canvas || !window.jspdf) {
-        alert("Erro ao carregar recursos para gerar PDF. Tente novamente.");
-        console.error("jsPDF or html2canvas not found on window object.");
-        return;
-    }
-
-    const elementsToHide = Array.from(input.querySelectorAll('.print-hidden')) as HTMLElement[];
-    const elementsToShowRows = Array.from(input.querySelectorAll('.print-visible-row')) as HTMLElement[];
-    const elementsToShowInline = Array.from(input.querySelectorAll('.print-visible-inline')) as HTMLElement[];
-    const elementsDateDisplay = Array.from(input.querySelectorAll('.print-date-display')) as HTMLElement[];
-
-    elementsToHide.forEach(el => el.style.setProperty('display', 'none', 'important'));
-    elementsToShowRows.forEach(el => el.style.setProperty('display', 'table-row', 'important'));
-    elementsToShowInline.forEach(el => el.style.setProperty('display', 'inline', 'important'));
-    elementsDateDisplay.forEach(el => el.style.setProperty('display', 'inline', 'important'));
-
-    try {
-        // @ts-ignore
-        const canvas = await window.html2canvas(input, {
-            scale: 2,
-            useCORS: true,
-            logging: false,
-        });
-
-        const imgData = canvas.toDataURL('image/png');
-        // @ts-ignore
-        const { jsPDF } = window.jspdf;
-        const pdf = new jsPDF({
-            orientation: 'portrait',
-            unit: 'mm',
-            format: 'a4',
-        });
-
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const imgProps = pdf.getImageProperties(imgData);
-        const pageHeight = pdf.internal.pageSize.getHeight();
-        const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
-        let heightLeft = imgHeight;
-        let position = 0;
-
-        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, imgHeight);
-        heightLeft -= pageHeight;
-
-        while (heightLeft > 0) {
-            position = heightLeft - imgHeight;
-            pdf.addPage();
-            pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
-            heightLeft -= pageHeight;
-        }
-
-        const clientName = selectedClient ? selectedClient.name.replace(/\s+/g, '_') : 'cliente';
-        const date = quoteDate;
-        pdf.save(`Orcamento-${clientName}-${date}.pdf`);
-
-    } catch (error) {
-        console.error("Erro ao gerar PDF:", error);
-        alert("Ocorreu um erro ao gerar o PDF.");
-    } finally {
-        elementsToHide.forEach(el => el.style.display = '');
-        elementsToShowRows.forEach(el => el.style.display = '');
-        elementsToShowInline.forEach(el => el.style.display = '');
-        elementsDateDisplay.forEach(el => el.style.display = 'none');
-    }
+    const saved = saveCurrentQuote();
+    if (!saved) return;
+    await handleGeneratePdfFromSaved(saved);
   };
   
-  const formatDateDisplay = (dateString: string) => {
+  const formatDateDisplay = (dateString: string, timeString?: string) => {
       if (!dateString) return '';
       const [year, month, day] = dateString.split('-');
-      return `${day}/${month}/${year}`;
+      let result = `${day}/${month}/${year}`;
+      if (timeString) {
+          result += ` - ${timeString}`;
+      }
+      return result;
+  };
+
+  const formatDateTime = (isoString: string) => {
+      if (!isoString) return '';
+      const d = new Date(isoString);
+      if (isNaN(d.getTime())) return isoString;
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      const hours = String(d.getHours()).padStart(2, '0');
+      const minutes = String(d.getMinutes()).padStart(2, '0');
+      return `${day}/${month}/${year} - ${hours}:${minutes}`;
   };
 
   const tableCols = 3 + (quoteSettings.showProductCode ? 1 : 0) + (quoteSettings.showProductSector ? 1 : 0) + (quoteSettings.showProductImage ? 1 : 0);
@@ -393,142 +453,154 @@ const Quotes: React.FC<QuotesProps> = ({
 
   const filteredSavedQuotes = useMemo(() => {
     return savedQuotes.filter(quote => {
+      const formattedNum = quote.number ? String(quote.number).padStart(4, '0') : '';
+      const rawNum = quote.number ? String(quote.number) : '';
+      const formattedDate = formatDateTime(quote.createdAt);
+
+      // General Search Term matches client name, quote sequence number (#0001 or 1), item names/codes, notes, date, total
+      const searchLower = searchTerm.toLowerCase().trim();
+      const searchMatch = !searchLower ? true : (
+        quote.client.name.toLowerCase().includes(searchLower) ||
+        formattedNum.includes(searchLower) ||
+        rawNum.includes(searchLower) ||
+        `#${formattedNum}`.includes(searchLower) ||
+        (quote.notes && quote.notes.toLowerCase().includes(searchLower)) ||
+        formattedDate.includes(searchLower) ||
+        String(quote.finalTotal).includes(searchLower) ||
+        quote.items.some(i => i.product.name.toLowerCase().includes(searchLower) || (i.product.code && i.product.code.toLowerCase().includes(searchLower)))
+      );
+
+      const numMatch = numberFilter 
+        ? (formattedNum.includes(numberFilter.trim()) || rawNum.includes(numberFilter.trim()) || `#${formattedNum}`.includes(numberFilter.trim())) 
+        : true;
       const nameMatch = nameFilter ? quote.client.name.toLowerCase().includes(nameFilter.toLowerCase()) : true;
-      const dateMatch = dateFilter ? new Date(quote.createdAt).toLocaleDateString('pt-BR').includes(dateFilter) : true;
+      const dateMatch = dateFilter ? formattedDate.includes(dateFilter) : true;
       const valueMatch = valueFilter ? String(quote.finalTotal).includes(valueFilter) : true;
-      return nameMatch && dateMatch && valueMatch;
+
+      return searchMatch && numMatch && nameMatch && dateMatch && valueMatch;
     }).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [savedQuotes, nameFilter, dateFilter, valueFilter]);
+  }, [savedQuotes, searchTerm, numberFilter, nameFilter, dateFilter, valueFilter]);
 
   const generateQuoteHTML = (quote: SavedQuote): string => {
-    const tableCols = 2 + (quoteSettings.showProductCode ? 1 : 0) + (quoteSettings.showProductSector ? 1 : 0) + (quoteSettings.showProductImage ? 1 : 0) + 2;
-    
-    const productItems = quote.items.filter(i => i.product.type !== 'service');
-    const serviceItems = quote.items.filter(i => i.product.type === 'service');
-    const hasProducts = productItems.length > 0;
-    const hasServices = serviceItems.length > 0;
-    
-    // Adjust to display the saved date correctly
-    const displayDate = new Date(quote.createdAt).toLocaleDateString('pt-BR');
+    const quoteNumText = quote.number 
+      ? `Nº ${String(quote.number).padStart(4, '0')}` 
+      : (quoteSettings.enableSequentialNumber !== false ? `Nº ${String(quoteSettings.nextQuoteNumber || 1).padStart(4, '0')}` : '');
 
-    const headerLeft = `
-      <div style="display: flex; align-items: flex-start; flex-grow: 1;">
-          ${logo ? `<img src="${logo}" alt="Logotipo" style="max-height: 60px; max-width: 150px; margin-right: 1.5rem;"/>` : ''}
-      </div>
-    `;
+    const formattedDate = formatDateTime(quote.createdAt);
 
-    // Compact styles for rows
-    const renderRows = (items: QuoteItem[]) => items.map(item => `
-        <tr style="border-bottom: 1px solid #e2e8f0;">
-            <td style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: #334155;">${item.quantity}</td>
-            ${quoteSettings.showProductImage ? `<td style="padding: 0.3rem 0.5rem;">${item.product.image ? `<img src="${item.product.image}" style="max-width: 35px; max-height: 35px; object-fit: cover; border-radius: 4px;" />` : '-'}</td>` : ''}
-            ${quoteSettings.showProductCode ? `<td style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: #334155;">${item.product.code}</td>` : ''}
-            ${quoteSettings.showProductSector ? `<td style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: #334155;">${item.product.sector || '-'}</td>` : ''}
-            <td style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: #1e293b;">
-            ${item.product.name.charAt(0).toUpperCase() + item.product.name.slice(1).toLowerCase()}
-            ${item.product.type === 'service' ? '<span style="font-size: 0.7rem; background-color: #e0f2fe; color: #0369a1; padding: 1px 5px; border-radius: 9999px; margin-left: 6px; display: inline-block;">Serviço</span>' : ''}
-            </td>
-            <td style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: #334155;">R$ ${item.product.sellPrice.toFixed(2)}</td>
-            <td style="padding: 0.3rem 0.5rem; font-size: 0.85rem; color: #334155;">R$ ${(item.product.sellPrice * item.quantity).toFixed(2)}</td>
-        </tr>
+    const itemsRows = quote.items.map(item => `
+      <tr style="border-bottom: 1px solid #f1f5f9;">
+        <td style="padding: 4px 6px; text-align: center; font-size: 12px;">${item.quantity}</td>
+        ${quoteSettings.showProductCode ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569;">${item.product.code || '-'}</td>` : ''}
+        ${quoteSettings.showProductSector ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569;">${item.product.sector || '-'}</td>` : ''}
+        <td style="padding: 4px 6px; font-size: 12px;">${item.product.name}</td>
+        <td style="padding: 4px 6px; text-align: right; font-size: 12px;">${item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td style="padding: 4px 6px; text-align: right; font-size: 12px;">${(item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      </tr>
     `).join('');
 
-    let tableBodyContent = '';
-    if (hasProducts) {
-        tableBodyContent += renderRows(productItems);
-    }
-    
-    if (hasProducts && hasServices) {
-        tableBodyContent += `
-            <tr style="background-color: #f8fafc;">
-                <td colspan="${tableCols}" style="padding: 0.3rem; text-align: center; font-size: 0.8rem; font-weight: 600; color: #64748b; border-bottom: 1px solid #e2e8f0;">--- Mão de Obra / Serviços ---</td>
-            </tr>
-        `;
-    }
+    const subtotalVal = quote.subtotal || (quote.finalTotal + (quote.discountAmount || 0));
+    const discountVal = quote.discountAmount || 0;
+    const formattedSubtotal = subtotalVal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const formattedDiscount = discountVal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const formattedTotal = quote.finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const discountLabel = quote.discountType === 'percent' && parseFloat(quote.discount || '0') > 0
+      ? `Desconto (${quote.discount}%)`
+      : 'Desconto';
 
-    if (hasServices) {
-        tableBodyContent += renderRows(serviceItems);
+    let headerHtml = '';
+    if (quoteSettings.text) {
+      headerHtml = `
+        <div style="white-space: pre-wrap; line-height: 1.25; color: #0f172a; font-family: ${quoteSettings.fontFamily || 'sans-serif'}; text-align: ${quoteSettings.textAlign || 'center'}; font-size: ${quoteSettings.fontSize ? quoteSettings.fontSize + 'px' : '12px'};">
+          ${quoteSettings.text}
+        </div>
+      `;
+    } else if (companyInfo?.name) {
+      headerHtml = `
+        <div style="text-align: center; font-size: 11px; line-height: 1.25; color: #0f172a; font-family: sans-serif;">
+          <div style="font-weight: bold; font-size: 12px; text-transform: uppercase; letter-spacing: 0.025em; margin-bottom: 2px;">-- ${companyInfo.name.toUpperCase()} --</div>
+          ${companyInfo.address ? `<div>${companyInfo.address}</div>` : ''}
+          ${companyInfo.phone ? `<div>${companyInfo.phone}</div>` : ''}
+          ${companyInfo.email ? `<div>${companyInfo.email}</div>` : ''}
+          ${(companyInfo.zipCode || companyInfo.city) ? `<div>CEP ${companyInfo.zipCode || ''} ${companyInfo.city ? '- ' + companyInfo.city : ''}</div>` : ''}
+          ${companyInfo.cnpj ? `<div>CNPJ: ${companyInfo.cnpj}</div>` : ''}
+        </div>
+      `;
     }
 
     return `
-      <div class="p-8 font-sans" style="padding: 1.5rem;">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 1px solid #e2e8f0;">
-          ${headerLeft}
-          <div style="text-align: right; flex-shrink: 0; margin-left: 2rem;">
-              <h2 style="font-size: 2rem; font-weight: bold; color: #1e293b; margin: 0;">Orçamento</h2>
-              <p style="font-size: 0.875rem; color: #64748b; margin-top: 0.1rem;">
-                  Data: ${displayDate}
-              </p>
+      <div style="padding: 24px; font-family: sans-serif; font-size: 12px; color: #0f172a; background: #ffffff; width: 800px; box-sizing: border-box;">
+        <!-- Header -->
+        <div style="position: relative; margin-bottom: 8px; min-height: 60px;">
+          ${logo ? `<div style="position: absolute; left: 0; top: 0;"><img src="${logo}" alt="Logo" style="max-height: 56px; max-width: 120px; object-fit: contain;"/></div>` : ''}
+          ${headerHtml}
+        </div>
+
+        <!-- Document Title -->
+        <div style="text-align: center; font-weight: bold; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 12px; margin-bottom: 12px; color: #0f172a;">
+          ORÇAMENTO
+        </div>
+
+        <!-- Client Data -->
+        <div style="font-size: 12px; line-height: 1.5; margin-bottom: 12px; color: #0f172a;">
+          <div><strong>Para :</strong> ${quote.client.name}</div>
+          ${quote.client.address ? `<div><strong>End. :</strong> ${quote.client.address}${quote.client.city ? ' - ' + quote.client.city : ''}${quote.client.zipCode ? ' - CEP ' + quote.client.zipCode : ''}</div>` : ''}
+          ${quote.client.phone ? `<div><strong>Tel. :</strong> ${quote.client.phone}</div>` : ''}
+          ${quote.client.type === 'juridical' && quote.client.cnpj ? `<div><strong>CNPJ :</strong> ${quote.client.cnpj}</div>` : (quote.client.cpf ? `<div><strong>CPF :</strong> ${quote.client.cpf}</div>` : '')}
+        </div>
+
+        <!-- Quote Info & Page/Via -->
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; font-size: 12px; margin-bottom: 12px; color: #0f172a;">
+          <div>
+            <div><strong>Orçamento</strong> ${quoteNumText}</div>
+            <div>${formattedDate}</div>
+          </div>
+          <div style="text-align: right;">
+            <div>Página 1</div>
+            <div>Via 1</div>
           </div>
         </div>
-        ${quoteSettings.text ? `
-          <div
-              style="margin-bottom: 1.5rem; white-space: pre-wrap; color: #475569; font-family: ${quoteSettings.fontFamily}; text-align: ${quoteSettings.textAlign}; font-size: ${quoteSettings.fontSize}px;"
-          >
-              ${quoteSettings.text.replace(/\n/g, '<br>')}
-          </div>
-        ` : ''}
-        <div style="margin-bottom: 1.5rem; padding: 0.5rem; border: 1px solid #e2e8f0; background-color: #f8fafc; border-radius: 0.5rem;">
-          <h3 style="font-size: 1.1rem; font-weight: 600; color: #334155; margin-bottom: 0.25rem;">Cliente:</h3>
-          <p style="color: #475569; font-size: 0.9rem; margin-bottom: 0.2rem;"><strong>Nome:</strong> ${quote.client.name}</p>
-          ${quote.client.cpf ? `<p style="color: #475569; font-size: 0.9rem; margin-bottom: 0.2rem;"><strong>CPF:</strong> ${quote.client.cpf}</p>` : ''}
-          ${quote.client.cnpj ? `<p style="color: #475569; font-size: 0.9rem; margin-bottom: 0.2rem;"><strong>CNPJ:</strong> ${quote.client.cnpj}</p>` : ''}
-          ${quote.client.stateRegistration ? `<p style="color: #475569; font-size: 0.9rem; margin-bottom: 0.2rem;"><strong>Inscrição Estadual:</strong> ${quote.client.stateRegistration}</p>` : ''}
-          <p style="color: #475569; font-size: 0.9rem; margin-bottom: 0.2rem;"><strong>Endereço:</strong> ${quote.client.address}, ${quote.client.city} - ${quote.client.zipCode}</p>
-          <p style="color: #475569; font-size: 0.9rem; margin-bottom: 0.2rem;"><strong>Telefone:</strong> ${quote.client.phone}</p>
+
+        <!-- Table -->
+        <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 8px;">
+          <thead>
+            <tr style="border-top: 1px solid #334155; border-bottom: 1px solid #334155; text-align: left;">
+              <th style="padding: 4px 6px; width: 64px; font-weight: normal; color: #0f172a;">Quantidade</th>
+              ${quoteSettings.showProductCode ? '<th style="padding: 4px 6px; width: 112px; font-weight: normal; color: #0f172a;">Código</th>' : ''}
+              ${quoteSettings.showProductSector ? '<th style="padding: 4px 6px; width: 80px; font-weight: normal; color: #0f172a;">Setor</th>' : ''}
+              <th style="padding: 4px 6px; font-weight: normal; color: #0f172a;">Descrição</th>
+              <th style="padding: 4px 6px; width: 96px; text-align: right; font-weight: normal; color: #0f172a;">Valor Unitário</th>
+              <th style="padding: 4px 6px; width: 96px; text-align: right; font-weight: normal; color: #0f172a;">Valor Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemsRows}
+          </tbody>
+        </table>
+
+        <!-- Total & Notes Footer -->
+        <div style="border-top: 1px solid #334155; padding-top: 8px; font-size: 12px; color: #0f172a;">
+          ${discountVal > 0 ? `
+            <div style="text-align: right; margin-bottom: 2px; color: #475569;">
+              Subtotal &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ ${formattedSubtotal}
+            </div>
+            <div style="text-align: right; margin-bottom: 4px; color: #dc2626; font-weight: 500;">
+              ${discountLabel} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - R$ ${formattedDiscount}
+            </div>
+            <div style="text-align: right; font-weight: bold; font-size: 14px; margin-bottom: 12px; border-top: 1px solid #e2e8f0; padding-top: 4px;">
+              Total &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ ${formattedTotal}
+            </div>
+          ` : `
+            <div style="text-align: right; font-weight: bold; font-size: 14px; margin-bottom: 12px;">
+              Total &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ ${formattedTotal}
+            </div>
+          `}
+          ${quote.notes ? `
+            <div style="margin-top: 4px;">
+              <div style="white-space: pre-wrap; font-size: 12px; color: #334155;">${quote.notes}</div>
+            </div>
+          ` : ''}
         </div>
-        <div>
-          <table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
-            <thead style="background-color: #f1f5f9;">
-              <tr>
-                <th style="padding: 0.4rem 0.5rem; text-align: left; font-size: 0.75rem; font-weight: 600; color: #475569; text-transform: uppercase;">Qtd.</th>
-                ${quoteSettings.showProductImage ? '<th style="padding: 0.4rem 0.5rem; text-align: left; font-size: 0.75rem; font-weight: 600; color: #475569; text-transform: uppercase;">Imagem</th>' : ''}
-                ${quoteSettings.showProductCode ? '<th style="padding: 0.4rem 0.5rem; text-align: left; font-size: 0.75rem; font-weight: 600; color: #475569; text-transform: uppercase;">Código</th>' : ''}
-                ${quoteSettings.showProductSector ? '<th style="padding: 0.4rem 0.5rem; text-align: left; font-size: 0.75rem; font-weight: 600; color: #475569; text-transform: uppercase;">Setor</th>' : ''}
-                <th style="padding: 0.4rem 0.5rem; text-align: left; font-size: 0.75rem; font-weight: 600; color: #475569; text-transform: uppercase;">Item</th>
-                <th style="padding: 0.4rem 0.5rem; text-align: left; font-size: 0.75rem; font-weight: 600; color: #475569; text-transform: uppercase;">Preço Unit.</th>
-                <th style="padding: 0.4rem 0.5rem; text-align: left; font-size: 0.75rem; font-weight: 600; color: #475569; text-transform: uppercase;">Preço Total</th>
-              </tr>
-            </thead>
-            <tbody style="background-color: white; border-top: 1px solid #e2e8f0;">
-              ${tableBodyContent}
-            </tbody>
-            <tfoot>
-               ${(quote.productsSubtotal ?? 0) > 0 && (quote.servicesSubtotal ?? 0) > 0 ? `
-                <tr>
-                  <td colspan="${tableCols - 1}" style="padding: 0.3rem 0.5rem; text-align: right; font-size: 0.85rem; font-weight: 500; color: #475569;">Subtotal Produtos</td>
-                  <td style="padding: 0.3rem 0.5rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: #475569;">R$ ${(quote.productsSubtotal ?? 0).toFixed(2)}</td>
-                </tr>
-                <tr>
-                  <td colspan="${tableCols - 1}" style="padding: 0.3rem 0.5rem; text-align: right; font-size: 0.85rem; font-weight: 500; color: #475569;">Subtotal Mão de Obra</td>
-                  <td style="padding: 0.3rem 0.5rem; text-align: left; font-size: 0.85rem; font-weight: 500; color: #475569;">R$ ${(quote.servicesSubtotal ?? 0).toFixed(2)}</td>
-                </tr>
-              ` : ''}
-              ${quoteSettings.showDiscount ? `
-                <tr>
-                  <td colspan="${tableCols - 1}" style="padding: 0.3rem 0.5rem; text-align: right; font-size: 0.9rem; font-weight: 500; color: #475569;">Subtotal Geral</td>
-                  <td style="padding: 0.3rem 0.5rem; text-align: left; font-size: 0.9rem; font-weight: 500; color: #475569;">R$ ${quote.subtotal.toFixed(2)}</td>
-                </tr>
-              ` : ''}
-              ${quoteSettings.showDiscount && quote.discountAmount > 0 ? `
-                <tr>
-                  <td colspan="${tableCols - 1}" style="padding: 0.3rem 0.5rem; text-align: right; font-size: 0.9rem; font-weight: 500; color: #dc2626;">Desconto</td>
-                  <td style="padding: 0.3rem 0.5rem; text-align: left; font-size: 0.9rem; font-weight: 500; color: #dc2626;">- R$ ${quote.discountAmount.toFixed(2)}</td>
-                </tr>
-              ` : ''}
-              <tr style="background-color: #f1f5f9;">
-                <td colspan="${tableCols - 1}" style="padding: 0.5rem; text-align: right; font-size: 1.1rem; font-weight: bold; color: #1e293b;">Total</td>
-                <td style="padding: 0.5rem; text-align: left; font-size: 1.1rem; font-weight: bold; color: #1e293b;">R$ ${quote.finalTotal.toFixed(2)}</td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-        ${quote.notes ? `
-          <div style="margin-top: 1rem; padding-top: 0.5rem; border-top: 1px solid #e2e8f0;">
-            <h3 style="font-size: 1rem; font-weight: 600; color: #334155; margin-bottom: 0.25rem;">Observações:</h3>
-            <p style="color: #475569; white-space: pre-wrap; font-size: 0.9rem;">${quote.notes}</p>
-          </div>
-        ` : ''}
       </div>
     `;
   }
@@ -536,7 +608,7 @@ const Quotes: React.FC<QuotesProps> = ({
   const handlePrintSavedQuote = (quote: SavedQuote) => {
     const printContent = generateQuoteHTML(quote);
     const originalContents = document.body.innerHTML;
-    document.body.innerHTML = `<style> body { font-family: sans-serif; } </style>` + printContent;
+    document.body.innerHTML = `<style> body { font-family: sans-serif; margin: 0; padding: 0; } </style>` + printContent;
     window.print();
     document.body.innerHTML = originalContents;
     window.location.reload();
@@ -553,14 +625,15 @@ const Quotes: React.FC<QuotesProps> = ({
         phone = '55' + phone;
     }
 
-    let message = `Olá *${quote.client.name}*, aqui está o resumo do seu orçamento (${new Date(quote.createdAt).toLocaleDateString('pt-BR')}):\n\n`;
+    const quoteNumText = quote.number ? `Nº ${String(quote.number).padStart(4, '0')} ` : '';
+    let message = `Olá *${quote.client.name}*, aqui está o resumo do seu orçamento ${quoteNumText}(${formatDateTime(quote.createdAt)}):\n\n`;
 
     quote.items.forEach(item => {
         const totalItem = (item.quantity * item.product.sellPrice).toFixed(2);
         message += `• ${item.quantity}x ${item.product.name}: R$ ${totalItem}\n`;
     });
 
-    if (quoteSettings.showDiscount && quote.discountAmount > 0) {
+    if (quote.discountAmount > 0) {
          message += `\nSubtotal: R$ ${quote.subtotal.toFixed(2)}`;
          message += `\nDesconto: - R$ ${quote.discountAmount.toFixed(2)}`;
     }
@@ -586,30 +659,27 @@ const Quotes: React.FC<QuotesProps> = ({
 
     try {
         // @ts-ignore
-        const canvas = await window.html2canvas(input, { scale: 2, useCORS: true, logging: false, width: input.scrollWidth, height: input.scrollHeight });
+        const canvas = await window.html2canvas(input, { scale: 2, useCORS: true, logging: false });
         const imgData = canvas.toDataURL('image/png');
         // @ts-ignore
         const { jsPDF } = window.jspdf;
         
         const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = pdf.internal.pageSize.getHeight();
-        const canvasWidth = canvas.width;
-        const canvasHeight = canvas.height;
-        const ratio = canvasWidth / canvasHeight;
-        const imgWidth = pdfWidth;
-        const imgHeight = imgWidth / ratio;
+        const imgProps = pdf.getImageProperties(imgData);
+        const pageHeight = pdf.internal.pageSize.getHeight();
+        const imgHeight = (imgProps.height * pdfWidth) / imgProps.width;
         let heightLeft = imgHeight;
         let position = 0;
 
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pdfHeight;
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, imgHeight);
+        heightLeft -= pageHeight;
 
         while (heightLeft > 0) {
-          position -= pdfHeight;
-          pdf.addPage();
-          pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-          heightLeft -= pdfHeight;
+            position = heightLeft - imgHeight;
+            pdf.addPage();
+            pdf.addImage(imgData, 'PNG', 0, position, pdfWidth, imgHeight);
+            heightLeft -= pageHeight;
         }
 
         const clientName = quote.client.name.replace(/\s+/g, '_');
@@ -629,8 +699,13 @@ const Quotes: React.FC<QuotesProps> = ({
       <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-lg h-fit">
          <div className="flex justify-between items-center mb-6">
             <h2 className="text-2xl font-bold text-slate-900">Novo Orçamento</h2>
-            <button onClick={clearQuoteForm} className="text-sm text-[--color-destructive-600] hover:text-[--color-destructive-700]">
-                Limpar
+            <button 
+                type="button"
+                onClick={handleIncluir} 
+                className="px-3 py-1.5 text-xs font-semibold rounded bg-gradient-to-b from-emerald-100 to-emerald-200 hover:from-emerald-200 hover:to-emerald-300 text-emerald-900 border border-emerald-300 shadow-xs transition-colors"
+                title="Incluir (Novo Orçamento)"
+            >
+                <u>I</u>ncluir
             </button>
          </div>
          
@@ -652,7 +727,11 @@ const Quotes: React.FC<QuotesProps> = ({
                     className="w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
                 >
                     <option value="">Selecione um cliente...</option>
-                    {clients.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {clients.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.code ? `[${c.code}] ${c.name}` : c.name}
+                      </option>
+                    ))}
                 </select>
             </div>
             
@@ -767,321 +846,580 @@ const Quotes: React.FC<QuotesProps> = ({
          {/* Quote Preview */}
          <div className="bg-white rounded-xl shadow-lg overflow-hidden">
              {/* Toolbar */}
-             <div className="bg-slate-50 px-6 py-4 border-b border-slate-200 flex flex-wrap gap-3 items-center justify-between">
-                 <span className="text-sm font-medium text-slate-600">
-                     {autoSaveStatus === 'saving' && 'Salvando...'}
-                     {autoSaveStatus === 'saved' && 'Rascunho salvo.'}
-                     {!autoSaveStatus && quoteItems.length > 0 && 'Edição em andamento'}
-                 </span>
-                 <div className="flex gap-2">
-                     <button onClick={handlePrint} className="inline-flex items-center px-3 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">
-                         <PrinterIcon className="h-4 w-4 mr-2"/>
-                         Imprimir
-                     </button>
-                      <button onClick={handleExportPDF} className="inline-flex items-center px-3 py-2 border border-slate-300 rounded-md text-sm font-medium text-slate-700 bg-white hover:bg-slate-50">
-                         <FileDownIcon className="h-4 w-4 mr-2"/>
-                         PDF
-                     </button>
-                      <button onClick={() => saveCurrentQuote()} className="inline-flex items-center px-3 py-2 border border-transparent rounded-md text-sm font-medium text-white bg-[--color-primary-600] hover:bg-[--color-primary-700]">
-                         <SaveIcon className="h-4 w-4 mr-2"/>
-                         Salvar
-                     </button>
-                 </div>
+              <div className="bg-slate-50 p-2.5 sm:p-3 border-b border-slate-200">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                      {/* Button groups */}
+                      <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+                          {/* Navigation Pager */}
+                          <div className="inline-flex items-center gap-0.5 bg-slate-200/80 p-0.5 rounded-lg border border-slate-300/80 shadow-2xs shrink-0">
+                              <button 
+                                  type="button"
+                                  onClick={handleFirstQuote}
+                                  disabled={savedQuotes.length === 0 || currentSavedQuoteIndex === 0}
+                                  title="Primeiro Orçamento"
+                                  className="h-8 min-w-[32px] px-1.5 inline-flex items-center justify-center rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 active:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs transition-colors cursor-pointer"
+                              >
+                                  <svg className="w-3.5 h-3.5 fill-slate-700" viewBox="0 0 16 16">
+                                      <rect x="2" y="2.5" width="2" height="11" rx="0.5" />
+                                      <polygon points="13,2.5 5,8 13,13.5" />
+                                  </svg>
+                              </button>
+                              <button 
+                                  type="button"
+                                  onClick={handlePrevQuote}
+                                  disabled={savedQuotes.length === 0 || currentSavedQuoteIndex === 0}
+                                  title="Orçamento Anterior"
+                                  className="h-8 min-w-[32px] px-1.5 inline-flex items-center justify-center rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 active:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs transition-colors cursor-pointer"
+                              >
+                                  <svg className="w-3.5 h-3.5 fill-slate-700" viewBox="0 0 16 16">
+                                      <polygon points="12,2.5 4,8 12,13.5" />
+                                  </svg>
+                              </button>
+                              <button 
+                                  type="button"
+                                  onClick={handleNextQuote}
+                                  disabled={savedQuotes.length === 0 || currentSavedQuoteIndex === -1 || currentSavedQuoteIndex === savedQuotes.length - 1}
+                                  title="Próximo Orçamento"
+                                  className="h-8 min-w-[32px] px-1.5 inline-flex items-center justify-center rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 active:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs transition-colors cursor-pointer"
+                              >
+                                  <svg className="w-3.5 h-3.5 fill-slate-700" viewBox="0 0 16 16">
+                                      <polygon points="4,2.5 12,8 4,13.5" />
+                                  </svg>
+                              </button>
+                              <button 
+                                  type="button"
+                                  onClick={handleLastQuote}
+                                  disabled={savedQuotes.length === 0 || currentSavedQuoteIndex === savedQuotes.length - 1}
+                                  title="Último Orçamento"
+                                  className="h-8 min-w-[32px] px-1.5 inline-flex items-center justify-center rounded border border-slate-300 bg-white text-slate-700 hover:bg-slate-100 active:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed shadow-xs transition-colors cursor-pointer"
+                              >
+                                  <svg className="w-3.5 h-3.5 fill-slate-700" viewBox="0 0 16 16">
+                                      <polygon points="3,2.5 11,8 3,13.5" />
+                                      <rect x="12" y="2.5" width="2" height="11" rx="0.5" />
+                                  </svg>
+                              </button>
+                          </div>
+
+                          {/* Management Group */}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                              <button 
+                                  type="button"
+                                  onClick={handleShowTable}
+                                  title="Orçamentos Salvos"
+                                  className="px-2.5 h-8 inline-flex items-center gap-1.5 rounded border border-sky-300 bg-gradient-to-b from-sky-100 to-sky-200 hover:from-sky-200 hover:to-sky-300 text-sky-900 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                              >
+                                  <svg className="w-4 h-4 text-sky-800 shrink-0" viewBox="0 0 16 16" fill="currentColor">
+                                      <rect x="1" y="1" width="14" height="14" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2" />
+                                      <rect x="1" y="1" width="14" height="4" fill="#0284c7" />
+                                      <line x1="1" y1="8" x2="15" y2="8" stroke="currentColor" strokeWidth="1" />
+                                      <line x1="1" y1="11" x2="15" y2="11" stroke="currentColor" strokeWidth="1" />
+                                      <line x1="6" y1="5" x2="6" y2="15" stroke="currentColor" strokeWidth="1" />
+                                      <line x1="11" y1="5" x2="11" y2="15" stroke="currentColor" strokeWidth="1" />
+                                  </svg>
+                                  <span className="whitespace-nowrap">Orçamentos Salvos</span>
+                              </button>
+
+                              <button 
+                                  type="button"
+                                  onClick={handleApagar}
+                                  title="Apagar Orçamento"
+                                  className="px-2.5 h-8 inline-flex items-center gap-1 rounded border border-red-300 bg-gradient-to-b from-red-100 to-red-200 hover:from-red-200 hover:to-red-300 text-red-900 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                              >
+                                  <TrashIcon className="h-3.5 w-3.5 text-red-800" />
+                                  <span>Apagar</span>
+                              </button>
+
+                              <button 
+                                  type="button"
+                                  onClick={handlePesquisar}
+                                  title="Pesquisar Orçamento"
+                                  className="px-2.5 h-8 inline-flex items-center gap-1 rounded border border-amber-300 bg-gradient-to-b from-amber-100 to-amber-200 hover:from-amber-200 hover:to-amber-300 text-amber-900 text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+                              >
+                                  <SearchIcon className="h-3.5 w-3.5 text-amber-800" />
+                                  <span>Pesquisar</span>
+                              </button>
+                          </div>
+
+                          {/* Export / Action Group */}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                              <button 
+                                  type="button"
+                                  onClick={handlePrint} 
+                                  title="Imprimir Orçamento"
+                                  className="px-2.5 h-8 inline-flex items-center gap-1.5 border border-slate-300 rounded text-xs font-semibold text-slate-700 bg-gradient-to-b from-slate-100 to-slate-200 hover:from-slate-200 hover:to-slate-300 shadow-xs transition-colors cursor-pointer"
+                              >
+                                  <PrinterIcon className="h-3.5 w-3.5 text-slate-600"/>
+                                  <span>Imprimir</span>
+                              </button>
+
+                              <button 
+                                  type="button"
+                                  onClick={handleExportPDF} 
+                                  title="Exportar em PDF"
+                                  className="px-2.5 h-8 inline-flex items-center gap-1.5 border border-orange-300 rounded text-xs font-semibold text-orange-900 bg-gradient-to-b from-orange-100 to-orange-200 hover:from-orange-200 hover:to-orange-300 shadow-xs transition-colors cursor-pointer"
+                              >
+                                  <FileDownIcon className="h-3.5 w-3.5 text-orange-800"/>
+                                  <span>PDF</span>
+                              </button>
+
+                              <button 
+                                  type="button"
+                                  onClick={() => {
+                                      if (isCurrentQuoteSaved) {
+                                          alert("Este orçamento já está salvo em Orçamentos Salvos.");
+                                      } else {
+                                          saveCurrentQuote();
+                                      }
+                                  }} 
+                                  title="Salvar Orçamento"
+                                  className="px-2.5 h-8 inline-flex items-center gap-1.5 border border-blue-300 rounded text-xs font-semibold text-blue-900 bg-gradient-to-b from-blue-100 to-blue-200 hover:from-blue-200 hover:to-blue-300 shadow-xs transition-colors cursor-pointer"
+                              >
+                                  <SaveIcon className="h-3.5 w-3.5 text-blue-800"/>
+                                  <span>Salvar</span>
+                              </button>
+                          </div>
+                      </div>
+
+                      {/* Auto-save Status */}
+                      {autoSaveStatus && (
+                          <span className="text-xs font-medium text-slate-500 bg-white px-2 py-1 rounded border border-slate-200 shrink-0">
+                              {autoSaveStatus === "saving" ? "Salvando..." : "Rascunho salvo."}
+                          </span>
+                      )}
+                  </div>
+              </div>
+              
+              {/* Printable Area */}
+                           <div ref={quoteRef} className="p-6 bg-white text-slate-900 font-sans text-xs min-h-[600px]" id="printable-quote">
+                                   {/* Company Header */}
+                  <div className="relative mb-2 min-h-[60px]">
+                      {logo && (
+                          <div className="absolute left-0 top-0">
+                              <img src={logo} alt="Logo" className="max-h-14 max-w-[120px] object-contain" />
+                          </div>
+                      )}
+                      {quoteSettings.text ? (
+                          <div 
+                              className="whitespace-pre-wrap leading-tight text-slate-900"
+                              style={{
+                                  fontFamily: quoteSettings.fontFamily || 'sans-serif',
+                                  textAlign: quoteSettings.textAlign || 'center',
+                                  fontSize: quoteSettings.fontSize ? `${quoteSettings.fontSize}px` : '12px'
+                              }}
+                          >
+                              {quoteSettings.text}
+                          </div>
+                      ) : companyInfo?.name ? (
+                          <div className="text-center text-[11px] leading-tight text-slate-900 font-sans">
+                              <div className="font-bold text-xs uppercase tracking-wide mb-0.5">-- {companyInfo.name.toUpperCase()} --</div>
+                              {companyInfo.address && <div>{companyInfo.address}</div>}
+                              {companyInfo.phone && <div>{companyInfo.phone}</div>}
+                              {companyInfo.email && <div>{companyInfo.email}</div>}
+                              {(companyInfo.zipCode || companyInfo.city) && (
+                                  <div>CEP {companyInfo.zipCode || ''} {companyInfo.city ? `- ${companyInfo.city}` : ''}</div>
+                              )}
+                              {companyInfo.cnpj && <div>CNPJ: {companyInfo.cnpj}</div>}
+                          </div>
+                      ) : null}
+                  </div>
+
+                  {/* Document Title */}
+                  <div className="text-center font-bold text-xs uppercase tracking-wider my-3 text-slate-900">
+                      ORÇAMENTO
+                  </div>
+
+                  {/* Client Data */}
+                  <div className="text-xs leading-normal mb-3 text-slate-900">
+                      {selectedClient ? (
+                          <>
+                              <div><strong>Para :</strong> {selectedClient.name}</div>
+                              {selectedClient.address && <div><strong>End. :</strong> {selectedClient.address}{selectedClient.city ? ` - ${selectedClient.city}` : ''}{selectedClient.zipCode ? ` - CEP ${selectedClient.zipCode}` : ''}</div>}
+                              {selectedClient.phone && <div><strong>Tel. :</strong> {selectedClient.phone}</div>}
+                              {selectedClient.type === 'juridical' && selectedClient.cnpj ? (
+                                  <div><strong>CNPJ :</strong> {selectedClient.cnpj}</div>
+                              ) : (selectedClient.cpf ? (
+                                  <div><strong>CPF :</strong> {selectedClient.cpf}</div>
+                              ) : null)}
+                          </>
+                      ) : (
+                          <div className="text-slate-400 italic">Nenhum cliente selecionado</div>
+                      )}
+                  </div>
+
+                  {/* Quote Number & Date & Page */}
+                  <div className="flex justify-between items-start text-xs mb-3 text-slate-900">
+                      <div>
+                          <div><strong>Orçamento</strong> {currentDisplayNumber !== undefined ? `Nº ${String(currentDisplayNumber).padStart(4, '0')}` : ''}</div>
+                          <div className="print-hidden flex items-center gap-1.5 mt-0.5">
+                              <input 
+                                  type="date" 
+                                  id="quoteDateDisplay"
+                                  value={quoteDate}
+                                  onChange={(e) => setQuoteDate(e.target.value)}
+                                  className="text-slate-800 border-b border-slate-300 focus:border-[--color-primary-500] focus:outline-none text-xs bg-transparent"
+                              />
+                              <input 
+                                  type="time" 
+                                  id="quoteTimeDisplay"
+                                  value={quoteTime}
+                                  onChange={(e) => setQuoteTime(e.target.value)}
+                                  className="text-slate-800 border-b border-slate-300 focus:border-[--color-primary-500] focus:outline-none text-xs bg-transparent"
+                              />
+                          </div>
+                          <span className="hidden print-visible-inline">{formatDateDisplay(quoteDate, quoteTime)}</span>
+                      </div>
+                      <div className="text-right">
+                          <div>Página 1</div>
+                          <div>Via 1</div>
+                      </div>
+                  </div>
+
+                                   {/* Table */}
+                  <table className="w-full text-xs mb-2 border-collapse">
+                      <thead>
+                          <tr className="border-y border-slate-700 text-left text-slate-900 font-normal">
+                              <th className="py-1 px-1.5 w-16">Quantidade</th>
+                              {quoteSettings.showProductCode && <th className="py-1 px-1.5 w-28">Código</th>}
+                              {quoteSettings.showProductSector && <th className="py-1 px-1.5 w-20">Setor</th>}
+                              <th className="py-1 px-1.5">Descrição</th>
+                              <th className="py-1 px-1.5 w-24 text-right">Valor Unitário</th>
+                              <th className="py-1 px-1.5 w-24 text-right">Valor Total</th>
+                              <th className="py-1 px-1.5 w-8 print-hidden"></th>
+                          </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 text-slate-800">
+                          {productItems.map((item, idx) => (
+                              <tr key={`prod-${idx}`}>
+                                  <td className="py-1 px-1.5 text-center">
+                                      <input 
+                                         type="number" 
+                                         min="1"
+                                         value={item.quantity}
+                                         onChange={(e) => handleUpdateQuantity(item.product.id, parseInt(e.target.value))}
+                                         className="w-10 bg-transparent border-b border-slate-200 hover:border-slate-400 focus:border-[--color-primary-500] focus:outline-none text-center print-hidden"
+                                      />
+                                      <span className="hidden print-visible-inline">{item.quantity}</span>
+                                  </td>
+                                  {quoteSettings.showProductCode && <td className="py-1 px-1.5 text-slate-600">{item.product.code || '-'}</td>}
+                                  {quoteSettings.showProductSector && <td className="py-1 px-1.5 text-slate-600">{item.product.sector || '-'}</td>}
+                                  <td className="py-1 px-1.5">{item.product.name}</td>
+                                  <td className="py-1 px-1.5 text-right">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                  <td className="py-1 px-1.5 text-right">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
+                                  <td className="py-1 px-1.5 text-center print-hidden">
+                                      <button onClick={() => handleRemoveItem(item.product.id)} className="text-slate-400 hover:text-[--color-destructive-500]">
+                                          <TrashIcon className="h-3.5 w-3.5" />
+                                      </button>
+                                  </td>
+                              </tr>
+                          ))}
+
+                          {serviceItems.map((item, idx) => (
+                              <tr key={`serv-${idx}`}>
+                                  <td className="py-1 px-1.5 text-center">
+                                      <input 
+                                         type="number" 
+                                         min="1"
+                                         value={item.quantity}
+                                         onChange={(e) => handleUpdateQuantity(item.product.id, parseInt(e.target.value))}
+                                         className="w-10 bg-transparent border-b border-slate-200 hover:border-slate-400 focus:border-[--color-primary-500] focus:outline-none text-center print-hidden"
+                                      />
+                                      <span className="hidden print-visible-inline">{item.quantity}</span>
+                                  </td>
+                                  {quoteSettings.showProductCode && <td className="py-1 px-1.5 text-slate-600">{item.product.code || '-'}</td>}
+                                  {quoteSettings.showProductSector && <td className="py-1 px-1.5 text-slate-600">{item.product.sector || '-'}</td>}
+                                  <td className="py-1 px-1.5">{item.product.name}</td>
+                                  <td className="py-1 px-1.5 text-right">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                  <td className="py-1 px-1.5 text-right">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
+                                  <td className="py-1 px-1.5 text-center print-hidden">
+                                      <button onClick={() => handleRemoveItem(item.product.id)} className="text-slate-400 hover:text-[--color-destructive-500]">
+                                          <TrashIcon className="h-3.5 w-3.5" />
+                                      </button>
+                                  </td>
+                              </tr>
+                          ))}
+
+                          {quoteItems.length === 0 && (
+                              <tr>
+                                  <td colSpan={quoteSettings.showProductCode ? 6 : 5} className="py-8 text-center text-slate-400 italic">
+                                      Adicione produtos ou serviços para começar o orçamento
+                                  </td>
+                              </tr>
+                          )}
+                      </tbody>
+                  </table>
+
+                  {/* Total & Notes Footer */}
+                  <div className="border-t border-slate-700 pt-2 text-xs text-slate-900">
+                      {discountAmount > 0 ? (
+                          <div className="text-right space-y-1 mb-3">
+                              <div className="text-slate-600">
+                                  Subtotal &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ {subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                              <div className="text-red-600 font-medium">
+                                  Desconto{discountType === 'percent' && parseFloat(discount) > 0 ? ` (${discount}%)` : ''} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - R$ {discountAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                              <div className="font-bold text-sm text-slate-900 pt-1 border-t border-slate-200 inline-block">
+                                  Total &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ {finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </div>
+                          </div>
+                      ) : (
+                          <div className="text-right font-bold text-sm mb-3">
+                              Total &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ {finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </div>
+                      )}
+                      {notes ? (
+                          <div className="mt-1">
+                              <div className="text-slate-700 whitespace-pre-wrap">{notes}</div>
+                          </div>
+                      ) : null}
+                  </div>
              </div>
-             
-             {/* Printable Area */}
-             <div ref={quoteRef} className="p-8 bg-white min-h-[600px]" id="printable-quote">
-                 <div className="flex justify-between items-start mb-8 border-b border-slate-200 pb-6">
-                    <div className="flex items-start gap-4">
-                        {logo && <img src={logo} alt="Logo" className="max-h-20 max-w-[150px] object-contain" />}
+         </div>
+
+         {/* Saved Quotes Modal */}
+      {isSavedQuotesModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-1.5 sm:p-4 md:p-6 overflow-hidden">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[96vh] sm:max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-3.5 sm:px-6 py-3 sm:py-4 border-b border-slate-200 bg-slate-50 shrink-0">
+              <div className="flex items-center gap-2.5 sm:gap-3">
+                <div className="p-1.5 sm:p-2 bg-sky-100 rounded-lg text-sky-800 shrink-0">
+                  <svg className="w-4 h-4 sm:w-5 sm:h-5" viewBox="0 0 16 16" fill="currentColor">
+                    <rect x="1" y="1" width="14" height="14" rx="1" fill="none" stroke="currentColor" strokeWidth="1.2" />
+                    <rect x="1" y="1" width="14" height="4" fill="#0284c7" />
+                    <line x1="1" y1="8" x2="15" y2="8" stroke="currentColor" strokeWidth="1" />
+                    <line x1="1" y1="11" x2="15" y2="11" stroke="currentColor" strokeWidth="1" />
+                    <line x1="6" y1="5" x2="6" y2="15" stroke="currentColor" strokeWidth="1" />
+                    <line x1="11" y1="5" x2="11" y2="15" stroke="currentColor" strokeWidth="1" />
+                  </svg>
+                </div>
+                <div>
+                  <h2 className="text-base sm:text-xl font-bold text-slate-900">Orçamentos Salvos</h2>
+                  <p className="text-xs text-slate-500">{filteredSavedQuotes.length} orçamento(s) encontrado(s)</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setIsSavedQuotesModalOpen(false)}
+                className="p-1.5 sm:p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 rounded-lg transition-colors cursor-pointer"
+                title="Fechar"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Content - Scrollable */}
+            <div className="p-2.5 sm:p-6 overflow-y-auto flex-1 space-y-3 sm:space-y-4">
+              {/* Filters */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 bg-slate-50 p-2.5 sm:p-3.5 rounded-lg border border-slate-200">
+                <div className="relative">
+                  <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
+                  <input 
+                     id="search-quotes-input"
+                     type="text" 
+                     placeholder="Filtrar por Nº do orçamento..." 
+                     value={numberFilter}
+                     onChange={(e) => setNumberFilter(e.target.value)}
+                     className="w-full pl-9 pr-3 py-1.5 border border-slate-300 rounded-md text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 bg-white"
+                     autoFocus
+                  />
+                </div>
+                <div className="relative">
+                  <input 
+                     type="text" 
+                     placeholder="Filtrar por cliente..." 
+                     value={nameFilter}
+                     onChange={(e) => setNameFilter(e.target.value)}
+                     className="w-full px-3 py-1.5 border border-slate-300 rounded-md text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 bg-white"
+                  />
+                </div>
+                <div className="relative">
+                  <input 
+                     type="text" 
+                     placeholder="Filtrar por data (DD/MM/AAAA)..." 
+                     value={dateFilter}
+                     onChange={(e) => setDateFilter(e.target.value)}
+                     className="w-full px-3 py-1.5 border border-slate-300 rounded-md text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 bg-white"
+                  />
+                </div>
+                <div className="relative">
+                  <input 
+                     type="text" 
+                     placeholder="Filtrar por valor..." 
+                     value={valueFilter}
+                     onChange={(e) => setValueFilter(e.target.value)}
+                     className="w-full px-3 py-1.5 border border-slate-300 rounded-md text-xs sm:text-sm focus:outline-none focus:ring-2 focus:ring-sky-500 bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Mobile View: Cards (md:hidden) */}
+              <div className="block md:hidden space-y-2.5">
+                {filteredSavedQuotes.length > 0 ? (
+                  filteredSavedQuotes.map((quote) => (
+                    <div key={quote.id} className="bg-white border border-slate-200 rounded-lg p-3 shadow-2xs space-y-2">
+                      <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+                        <span className="font-bold text-slate-800 text-sm">
+                          {quote.number ? `Nº ${String(quote.number).padStart(4, "0")}` : "Sem número"}
+                        </span>
+                        <span className="text-xs text-slate-500 font-medium">
+                          {formatDateTime(quote.createdAt)}
+                        </span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between text-xs pt-0.5">
+                        <span className="text-slate-500">Cliente:</span>
+                        <span className="font-semibold text-slate-900 truncate max-w-[200px]">{quote.client?.name || "Não informado"}</span>
+                      </div>
+                      
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-slate-500">Valor Total:</span>
+                        <span className="font-bold text-emerald-700 text-sm">
+                          R$ {quote.finalTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </span>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-1.5">
+                        <button 
+                          onClick={() => {
+                            editQuote(quote.id);
+                            setIsSavedQuotesModalOpen(false);
+                          }}
+                          className="flex-1 py-1.5 px-2 bg-sky-50 hover:bg-sky-100 text-sky-900 border border-sky-200 rounded-md text-xs font-semibold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                          title="Carregar / Editar Orçamento"
+                        >
+                          <PencilIcon className="h-3.5 w-3.5 text-sky-700" />
+                          <span>Carregar</span>
+                        </button>
+
+                        <button 
+                          onClick={() => handleSendWhatsApp(quote)} 
+                          className="p-1.5 text-emerald-700 hover:text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-md hover:bg-emerald-100 transition-colors cursor-pointer" 
+                          title="Enviar WhatsApp"
+                        >
+                          <WhatsAppIcon className="h-4 w-4" />
+                        </button>
+
+                        <button 
+                          onClick={() => handlePrintSavedQuote(quote)} 
+                          className="p-1.5 text-slate-700 hover:text-slate-900 bg-slate-50 border border-slate-200 rounded-md hover:bg-slate-100 transition-colors cursor-pointer" 
+                          title="Imprimir"
+                        >
+                          <PrinterIcon className="h-4 w-4" />
+                        </button>
+
+                        <button 
+                          onClick={() => handleGeneratePdfFromSaved(quote)} 
+                          className="p-1.5 text-orange-700 hover:text-orange-900 bg-orange-50 border border-orange-200 rounded-md hover:bg-orange-100 transition-colors cursor-pointer" 
+                          title="PDF"
+                        >
+                          <FileDownIcon className="h-4 w-4" />
+                        </button>
+
+                        <button 
+                          onClick={() => deleteQuote(quote.id)} 
+                          className="p-1.5 text-red-600 hover:text-red-800 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors cursor-pointer" 
+                          title="Excluir"
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
-                    <div className="text-right">
-                        <h2 className="text-3xl font-bold text-slate-800">Orçamento</h2>
-                        <div className="mt-1 flex flex-col items-end">
-                            <div className="print-hidden flex items-center gap-2">
-                                <label htmlFor="quoteDateDisplay" className="text-sm text-slate-500">Data:</label>
-                                <input 
-                                    type="date" 
-                                    id="quoteDateDisplay"
-                                    value={quoteDate}
-                                    onChange={(e) => setQuoteDate(e.target.value)}
-                                    className="text-right text-slate-600 border-b border-slate-300 focus:border-[--color-primary-500] focus:outline-none text-sm bg-transparent"
-                                />
+                  ))
+                ) : (
+                  <div className="p-6 text-center text-slate-400 italic bg-white rounded-lg border border-slate-200 text-xs">
+                    Nenhum orçamento salvo encontrado.
+                  </div>
+                )}
+              </div>
+
+              {/* Desktop / Tablet View: Table (hidden md:block) */}
+              <div className="hidden md:block border border-slate-200 rounded-lg overflow-x-auto shadow-xs bg-white">
+                <table className="min-w-full divide-y divide-slate-200">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Nº</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Data</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Cliente</th>
+                      <th className="px-4 py-3 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider">Total</th>
+                      <th className="px-4 py-3 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="bg-white divide-y divide-slate-200">
+                    {filteredSavedQuotes.length > 0 ? (
+                      filteredSavedQuotes.map((quote) => (
+                        <tr key={quote.id} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-slate-800">
+                            {quote.number ? `Nº ${String(quote.number).padStart(4, "0")}` : "-"}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm text-slate-500">
+                            {formatDateTime(quote.createdAt)}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-slate-900">
+                            {quote.client.name}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-sm font-semibold text-slate-700">
+                            R$ {quote.finalTotal.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
+                            <div className="flex justify-end gap-2">
+                              <button onClick={() => handleSendWhatsApp(quote)} className="p-1 text-slate-400 hover:text-green-600 transition-colors cursor-pointer" title="Enviar via WhatsApp">
+                                <WhatsAppIcon className="h-5 w-5" />
+                              </button>
+                              <button onClick={() => handlePrintSavedQuote(quote)} className="p-1 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer" title="Imprimir">
+                                <PrinterIcon className="h-5 w-5" />
+                              </button>
+                              <button onClick={() => handleGeneratePdfFromSaved(quote)} className="p-1 text-slate-400 hover:text-slate-600 transition-colors cursor-pointer" title="PDF">
+                                <FileDownIcon className="h-5 w-5" />
+                              </button>
+                              <button 
+                                onClick={() => {
+                                  editQuote(quote.id);
+                                  setIsSavedQuotesModalOpen(false);
+                                }} 
+                                className="p-1 text-[--color-accent-600] hover:text-[--color-accent-800] transition-colors cursor-pointer" 
+                                title="Editar"
+                              >
+                                <PencilIcon className="h-5 w-5" />
+                              </button>
+                              <button onClick={() => deleteQuote(quote.id)} className="p-1 text-[--color-destructive-600] hover:text-[--color-destructive-800] transition-colors cursor-pointer" title="Excluir">
+                                <TrashIcon className="h-5 w-5" />
+                              </button>
                             </div>
-                            <span className="hidden print-date-display text-slate-500">Data: {formatDateDisplay(quoteDate)}</span>
-                        </div>
-                    </div>
-                 </div>
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={5} className="px-6 py-12 text-center text-slate-400 italic">
+                          Nenhum orçamento salvo encontrado.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
 
-                 {quoteSettings.text && (
-                     <div className="mb-8 text-slate-600 whitespace-pre-wrap" style={{
-                         fontFamily: quoteSettings.fontFamily,
-                         textAlign: quoteSettings.textAlign,
-                         fontSize: `${quoteSettings.fontSize}px`
-                     }}>
-                         {quoteSettings.text}
-                     </div>
-                 )}
-
-                 <div className="bg-slate-50 p-4 rounded-lg mb-8 border border-slate-200">
-                     <h3 className="font-bold text-slate-700 mb-2">Cliente</h3>
-                     {selectedClient ? (
-                         <div className="text-sm text-slate-600 grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
-                             <p><span className="font-medium">Nome:</span> {selectedClient.name}</p>
-                             {selectedClient.phone && <p><span className="font-medium">Tel:</span> {selectedClient.phone}</p>}
-                             {selectedClient.type === 'physical' && selectedClient.cpf && <p><span className="font-medium">CPF:</span> {selectedClient.cpf}</p>}
-                             {selectedClient.type === 'juridical' && selectedClient.cnpj && <p><span className="font-medium">CNPJ:</span> {selectedClient.cnpj}</p>}
-                             {selectedClient.address && <p className="sm:col-span-2"><span className="font-medium">Endereço:</span> {selectedClient.address}, {selectedClient.city}</p>}
-                         </div>
-                     ) : (
-                         <p className="text-slate-400 italic">Nenhum cliente selecionado</p>
-                     )}
-                 </div>
-
-                 <table className="w-full mb-8">
-                     <thead>
-                         <tr className="bg-slate-50 border-y border-slate-200 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                             <th className="py-3 px-2 w-16">Qtd</th>
-                             {quoteSettings.showProductImage && <th className="py-3 px-2 w-16">Imagem</th>}
-                             {quoteSettings.showProductCode && <th className="py-3 px-2">Código</th>}
-                             {quoteSettings.showProductSector && <th className="py-3 px-2">Setor</th>}
-                             <th className="py-3 px-2">Item</th>
-                             <th className="py-3 px-2 w-24 text-right">Unit.</th>
-                             <th className="py-3 px-2 w-24 text-right">Total</th>
-                             <th className="py-3 px-2 w-10 print-hidden"></th>
-                         </tr>
-                     </thead>
-                     <tbody className="text-sm text-slate-700 divide-y divide-slate-100">
-                         {productItems.map((item, idx) => (
-                             <tr key={`prod-${idx}`}>
-                                 <td className="py-3 px-2">
-                                     <input 
-                                        type="number" 
-                                        min="1"
-                                        value={item.quantity}
-                                        onChange={(e) => handleUpdateQuantity(item.product.id, parseInt(e.target.value))}
-                                        className="w-12 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-[--color-primary-500] focus:outline-none text-center print-hidden"
-                                     />
-                                     <span className="hidden print-visible-inline">{item.quantity}</span>
-                                 </td>
-                                 {quoteSettings.showProductImage && (
-                                    <td className="py-3 px-2">
-                                        {item.product.image ? (
-                                            <img src={item.product.image} alt="" className="h-10 w-10 object-cover rounded bg-slate-100" />
-                                        ) : (
-                                            <div className="h-10 w-10 bg-slate-100 rounded flex items-center justify-center text-[8px] text-slate-400">Sem foto</div>
-                                        )}
-                                    </td>
-                                 )}
-                                 {quoteSettings.showProductCode && <td className="py-3 px-2 text-slate-500">{item.product.code}</td>}
-                                 {quoteSettings.showProductSector && <td className="py-3 px-2 text-slate-500">{item.product.sector}</td>}
-                                 <td className="py-3 px-2">
-                                    {item.product.name.charAt(0).toUpperCase() + item.product.name.slice(1).toLowerCase()}
-                                 </td>
-                                 <td className="py-3 px-2 text-right">R$ {item.product.sellPrice.toFixed(2)}</td>
-                                 <td className="py-3 px-2 text-right font-medium">R$ {(item.product.sellPrice * item.quantity).toFixed(2)}</td>
-                                 <td className="py-3 px-2 text-center print-hidden">
-                                     <button onClick={() => handleRemoveItem(item.product.id)} className="text-slate-400 hover:text-[--color-destructive-500]">
-                                         <TrashIcon className="h-4 w-4" />
-                                     </button>
-                                 </td>
-                             </tr>
-                         ))}
-                         
-                         {productItems.length > 0 && serviceItems.length > 0 && (
-                             <tr className="bg-slate-50/50">
-                                 <td colSpan={tableCols + 2} className="py-2 px-2 text-center text-xs font-medium text-slate-500">--- Serviços ---</td>
-                             </tr>
-                         )}
-
-                         {serviceItems.map((item, idx) => (
-                             <tr key={`serv-${idx}`}>
-                                 <td className="py-3 px-2">
-                                     <input 
-                                        type="number" 
-                                        min="1"
-                                        value={item.quantity}
-                                        onChange={(e) => handleUpdateQuantity(item.product.id, parseInt(e.target.value))}
-                                        className="w-12 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-[--color-primary-500] focus:outline-none text-center print-hidden"
-                                     />
-                                     <span className="hidden print-visible-inline">{item.quantity}</span>
-                                 </td>
-                                 {quoteSettings.showProductImage && (
-                                    <td className="py-3 px-2">
-                                        {/* Empty cell for services unless they have images (currently products usually have images) */}
-                                        {item.product.image ? (
-                                             <img src={item.product.image} alt="" className="h-10 w-10 object-cover rounded bg-slate-100" />
-                                        ) : (
-                                            <div className="h-10 w-10 bg-transparent"></div>
-                                        )}
-                                    </td>
-                                 )}
-                                 {quoteSettings.showProductCode && <td className="py-3 px-2 text-slate-500">{item.product.code}</td>}
-                                 {quoteSettings.showProductSector && <td className="py-3 px-2 text-slate-500">{item.product.sector}</td>}
-                                 <td className="py-3 px-2">
-                                     {item.product.name.charAt(0).toUpperCase() + item.product.name.slice(1).toLowerCase()}
-                                     <span className="ml-2 text-[10px] uppercase bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full print:hidden">Serviço</span>
-                                 </td>
-                                 <td className="py-3 px-2 text-right">R$ {item.product.sellPrice.toFixed(2)}</td>
-                                 <td className="py-3 px-2 text-right font-medium">R$ {(item.product.sellPrice * item.quantity).toFixed(2)}</td>
-                                 <td className="py-3 px-2 text-center print-hidden">
-                                     <button onClick={() => handleRemoveItem(item.product.id)} className="text-slate-400 hover:text-[--color-destructive-500]">
-                                         <TrashIcon className="h-4 w-4" />
-                                     </button>
-                                 </td>
-                             </tr>
-                         ))}
-
-                         {quoteItems.length === 0 && (
-                             <tr>
-                                 <td colSpan={tableCols + 2} className="py-8 text-center text-slate-400 italic">
-                                     Adicione produtos ou serviços para começar o orçamento
-                                 </td>
-                             </tr>
-                         )}
-                     </tbody>
-                     <tfoot className="border-t-2 border-slate-200">
-                         {(productsSubtotal > 0 && servicesSubtotal > 0) && (
-                             <>
-                                <tr className="text-sm text-slate-600">
-                                    <td colSpan={tableCols} className="py-2 px-2 text-right">Subtotal Produtos</td>
-                                    <td className="py-2 px-2 text-right">R$ {productsSubtotal.toFixed(2)}</td>
-                                    <td className="print-hidden"></td>
-                                </tr>
-                                <tr className="text-sm text-slate-600">
-                                    <td colSpan={tableCols} className="py-2 px-2 text-right">Subtotal Serviços</td>
-                                    <td className="py-2 px-2 text-right">R$ {servicesSubtotal.toFixed(2)}</td>
-                                    <td className="print-hidden"></td>
-                                </tr>
-                             </>
-                         )}
-                         {quoteSettings.showDiscount && (
-                             <tr className="text-sm text-slate-600">
-                                 <td colSpan={tableCols} className="py-2 px-2 text-right">Subtotal</td>
-                                 <td className="py-2 px-2 text-right">R$ {subtotal.toFixed(2)}</td>
-                                 <td className="print-hidden"></td>
-                             </tr>
-                         )}
-                         {quoteSettings.showDiscount && discountAmount > 0 && (
-                             <tr className="text-sm text-[--color-destructive-600]">
-                                 <td colSpan={tableCols} className="py-2 px-2 text-right">Desconto</td>
-                                 <td className="py-2 px-2 text-right">- R$ {discountAmount.toFixed(2)}</td>
-                                 <td className="print-hidden"></td>
-                             </tr>
-                         )}
-                         <tr className="text-lg font-bold text-slate-800 bg-slate-50">
-                             <td colSpan={tableCols} className="py-3 px-2 text-right">Total</td>
-                             <td className="py-3 px-2 text-right">R$ {finalTotal.toFixed(2)}</td>
-                             <td className="print-hidden"></td>
-                         </tr>
-                     </tfoot>
-                 </table>
-
-                 {notes && (
-                     <div className="mt-6 pt-6 border-t border-slate-200">
-                         <h3 className="font-bold text-slate-700 mb-2">Observações</h3>
-                         <p className="text-sm text-slate-600 whitespace-pre-wrap">{notes}</p>
-                     </div>
-                 )}
-             </div>
-         </div>
-
-         {/* Saved Quotes List */}
-         <div className="mt-12">
-             <h2 className="text-2xl font-bold text-slate-900 mb-6">Orçamentos Salvos</h2>
-             
-             <div className="bg-white p-4 rounded-lg shadow mb-4 grid grid-cols-1 sm:grid-cols-3 gap-4">
-                 <div className="relative">
-                     <SearchIcon className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-slate-400" />
-                     <input 
-                        type="text" 
-                        placeholder="Filtrar por cliente..." 
-                        value={nameFilter}
-                        onChange={(e) => setNameFilter(e.target.value)}
-                        className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
-                     />
-                 </div>
-                  <div className="relative">
-                     <input 
-                        type="text" 
-                        placeholder="Filtrar por data (DD/MM/AAAA)..." 
-                        value={dateFilter}
-                        onChange={(e) => setDateFilter(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
-                     />
-                 </div>
-                  <div className="relative">
-                     <input 
-                        type="text" 
-                        placeholder="Filtrar por valor..." 
-                        value={valueFilter}
-                        onChange={(e) => setValueFilter(e.target.value)}
-                        className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
-                     />
-                 </div>
-             </div>
-
-             <div className="bg-white rounded-lg shadow overflow-hidden">
-                 <table className="min-w-full divide-y divide-slate-200">
-                     <thead className="bg-slate-50">
-                         <tr>
-                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Data</th>
-                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Cliente</th>
-                             <th className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Total</th>
-                             <th className="px-6 py-3 text-right text-xs font-medium text-slate-500 uppercase tracking-wider">Ações</th>
-                         </tr>
-                     </thead>
-                     <tbody className="bg-white divide-y divide-slate-200">
-                         {filteredSavedQuotes.length > 0 ? (
-                             filteredSavedQuotes.map((quote) => (
-                                 <tr key={quote.id} className="hover:bg-slate-50">
-                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-500">
-                                         {new Date(quote.createdAt).toLocaleDateString('pt-BR')}
-                                     </td>
-                                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-slate-900">
-                                         {quote.client.name}
-                                     </td>
-                                     <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-600">
-                                         R$ {quote.finalTotal.toFixed(2)}
-                                     </td>
-                                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                        <div className="flex justify-end gap-2">
-                                            <button onClick={() => handleSendWhatsApp(quote)} className="text-slate-400 hover:text-green-600" title="Enviar via WhatsApp">
-                                                <WhatsAppIcon className="h-5 w-5" />
-                                            </button>
-                                            <button onClick={() => handlePrintSavedQuote(quote)} className="text-slate-400 hover:text-slate-600" title="Imprimir">
-                                                <PrinterIcon className="h-5 w-5" />
-                                            </button>
-                                            <button onClick={() => handleGeneratePdfFromSaved(quote)} className="text-slate-400 hover:text-slate-600" title="PDF">
-                                                <FileDownIcon className="h-5 w-5" />
-                                            </button>
-                                             <button onClick={() => editQuote(quote.id)} className="text-[--color-accent-600] hover:text-[--color-accent-800]" title="Editar">
-                                                <PencilIcon className="h-5 w-5" />
-                                            </button>
-                                            <button onClick={() => deleteQuote(quote.id)} className="text-[--color-destructive-600] hover:text-[--color-destructive-800]" title="Excluir">
-                                                <TrashIcon className="h-5 w-5" />
-                                            </button>
-                                        </div>
-                                     </td>
-                                 </tr>
-                             ))
-                         ) : (
-                             <tr>
-                                 <td colSpan={4} className="px-6 py-8 text-center text-slate-500 italic">
-                                     Nenhum orçamento salvo encontrado.
-                                 </td>
-                             </tr>
-                         )}
-                     </tbody>
-                 </table>
-             </div>
-         </div>
-      </div>
+            {/* Modal Footer */}
+            <div className="px-4 sm:px-6 py-2.5 sm:py-3 border-t border-slate-200 bg-slate-50 flex justify-end shrink-0">
+              <button
+                onClick={() => setIsSavedQuotesModalOpen(false)}
+                className="px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Hidden Div for Saved Quote PDF Generation */}
-      <div style={{ position: 'absolute', left: '-9999px' }}>
-        <div ref={printRef}></div>
+      <div style={{ position: 'absolute', left: '-9999px', top: 0, width: '800px' }}>
+        <div ref={printRef} style={{ width: '800px', backgroundColor: '#ffffff' }}></div>
       </div>
+    </div>
     </div>
   );
 };

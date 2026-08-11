@@ -15,7 +15,18 @@ interface ClientsProps {
 }
 
 const Clients: React.FC<ClientsProps> = ({ clients, addClient, updateClient, deleteClient }) => {
+  // Helper to generate the next available code
+  const getNextCode = () => {
+    if (clients.length === 0) return '0001';
+    const maxCode = clients.reduce((max, c) => {
+      const num = parseInt(c.code || '0', 10);
+      return !isNaN(num) && num > max ? num : max;
+    }, 0);
+    return String(maxCode + 1).padStart(4, '0');
+  };
+
   const [editingClient, setEditingClient] = useState<Client | null>(null);
+  const [code, setCode] = useState(() => getNextCode());
   const [clientType, setClientType] = useState<'physical' | 'juridical'>('physical');
   const [name, setName] = useState('');
   const [cpf, setCpf] = useState('');
@@ -30,6 +41,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, addClient, updateClient, del
 
   const resetForm = () => {
     setEditingClient(null);
+    setCode(getNextCode());
     setName('');
     setAddress('');
     setCity('');
@@ -44,6 +56,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, addClient, updateClient, del
   
   const handleEditClick = (client: Client) => {
     setEditingClient(client);
+    setCode(client.code || getNextCode());
     setClientType(client.type);
     setName(client.name);
     setAddress(client.address);
@@ -65,6 +78,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, addClient, updateClient, del
     }
     
     const clientData = {
+        code: code.trim() || getNextCode(),
         type: clientType,
         name,
         address,
@@ -100,6 +114,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, addClient, updateClient, del
 
     const dataToExport = clients.map(client => ({
       id: client.id,
+      codigo: client.code || '',
       tipo: client.type === 'physical' ? 'Pessoa Física' : 'Pessoa Jurídica',
       nome_razao_social: client.name,
       cpf: client.cpf || '',
@@ -150,6 +165,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, addClient, updateClient, del
         <p style="font-size: 0.9rem; color: #64748b;">Gerado em: ${new Date().toLocaleDateString('pt-BR')}</p>
       </div>
       <div style="font-size: 1rem;">
+        <p style="margin-bottom: 0.5rem;"><strong>Código do Cliente:</strong> ${client.code || 'N/A'}</p>
         <p style="margin-bottom: 0.5rem;"><strong>Nome/Razão Social:</strong> ${client.name}</p>
         <p style="margin-bottom: 0.5rem;"><strong>Tipo:</strong> ${client.type === 'physical' ? 'Pessoa Física' : 'Pessoa Jurídica'}</p>
         ${client.cpf ? `<p style="margin-bottom: 0.5rem;"><strong>CPF:</strong> ${client.cpf}</p>` : ''}
@@ -184,9 +200,15 @@ const Clients: React.FC<ClientsProps> = ({ clients, addClient, updateClient, del
     }
   };
 
-  const filteredClients = clients.filter(client => 
-    client.name.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const filteredClients = clients.filter(client => {
+    const term = searchTerm.toLowerCase();
+    return (
+      client.name.toLowerCase().includes(term) ||
+      (client.code && client.code.toLowerCase().includes(term)) ||
+      (client.cpf && client.cpf.includes(term)) ||
+      (client.cnpj && client.cnpj.includes(term))
+    );
+  });
 
 
   return (
@@ -197,6 +219,20 @@ const Clients: React.FC<ClientsProps> = ({ clients, addClient, updateClient, del
           {editingClient ? 'Editar Cliente' : 'Cadastrar Novo Cliente'}
         </h2>
         <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label htmlFor="code" className="block text-sm font-medium text-slate-700">
+              Código do Cliente <span className="text-xs text-[--color-primary-600] font-normal">(Automático)</span>
+            </label>
+            <input 
+              type="text" 
+              id="code" 
+              value={code} 
+              onChange={(e) => setCode(e.target.value)} 
+              className="mt-1 block w-full px-3 py-2 bg-slate-50 font-mono font-semibold text-slate-800 border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" 
+              placeholder="0001"
+              required
+            />
+          </div>
           <div>
             <label className="block text-sm font-medium text-slate-700">Tipo de Cliente</label>
             <div className="mt-2 flex space-x-4">
@@ -280,7 +316,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, addClient, updateClient, del
             <div className="relative">
                 <input
                     type="text"
-                    placeholder="Buscar cliente por nome..."
+                    placeholder="Buscar cliente por código, nome, CPF/CNPJ..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     className="w-full pl-10 pr-4 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]"
@@ -297,7 +333,10 @@ const Clients: React.FC<ClientsProps> = ({ clients, addClient, updateClient, del
               <div key={client.id} className="bg-white p-5 rounded-lg shadow-md hover:shadow-lg transition-shadow">
                 <div className="flex justify-between items-start">
                     <div className="flex-grow">
-                        <div className="flex items-center gap-3 mb-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="bg-slate-100 text-slate-800 border border-slate-300 font-mono text-xs font-bold px-2 py-0.5 rounded">
+                                Cód: {client.code || 'N/A'}
+                            </span>
                             <h3 className="font-bold text-lg text-[--color-primary-800]">{client.name}</h3>
                             <span className={`text-xs font-semibold uppercase px-2 py-1 rounded-full ${client.type === 'physical' ? 'bg-[--color-primary-100] text-[--color-primary-800]' : 'bg-purple-100 text-purple-800'}`}>
                                 {client.type === 'physical' ? 'P. Física' : 'P. Jurídica'}
