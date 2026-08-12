@@ -241,14 +241,9 @@ const App: React.FC = () => {
   };
 
   const deleteProduct = (id: string) => {
-    const productToDelete = products.find(p => p.id === id);
-    if (!productToDelete) return;
-
-    if (window.confirm(`Tem certeza que deseja excluir o item "${productToDelete.name}"?`)) {
-        const updatedProducts = products.filter((p) => p.id !== id);
-        setProducts(updatedProducts);
-        safeSetItem('products', JSON.stringify(updatedProducts));
-    }
+    const updatedProducts = products.filter((p) => p.id !== id);
+    setProducts(updatedProducts);
+    safeSetItem('products', JSON.stringify(updatedProducts));
   };
 
   const saveQuote = (quoteData: Omit<SavedQuote, 'id'>) => {

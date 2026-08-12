@@ -7,6 +7,7 @@ import { FileDownIcon } from './icons/FileDownIcon';
 import { FileUpIcon } from './icons/FileUpIcon';
 import { PencilIcon } from './icons/PencilIcon';
 import { TrashIcon } from './icons/TrashIcon';
+import { FileTextIcon } from './icons/FileTextIcon';
 import { PriceTagIcon } from './icons/PriceTagIcon';
 import { PrinterIcon } from './icons/PrinterIcon';
 
@@ -34,14 +35,21 @@ const Products: React.FC<ProductsProps> = ({
     companyInfo,
     logo 
 }) => {
-  // Helper to generate the next available code
-  const getNextCode = () => {
-    if (products.length === 0) return '0001';
-    const maxCode = products.reduce((max, p) => {
-        const num = parseInt(p.code, 10);
-        return !isNaN(num) && num > max ? num : max;
-    }, 0);
-    return String(maxCode + 1).padStart(4, '0');
+  // Helper to generate the next available sequential code starting from the lowest available number (0001)
+  const getNextCode = (list: Product[] = products, excludeId?: string) => {
+    const existingCodes = new Set(
+      list
+        .filter(p => !excludeId || p.id !== excludeId)
+        .map(p => p.code.trim().toLowerCase())
+    );
+    let candidate = 1;
+    while (true) {
+      const codeStr = String(candidate).padStart(4, '0');
+      if (!existingCodes.has(codeStr.toLowerCase())) {
+        return codeStr;
+      }
+      candidate++;
+    }
   };
 
   const [type, setType] = useState<'product' | 'service'>('product');
@@ -52,10 +60,13 @@ const Products: React.FC<ProductsProps> = ({
   const [sellPrice, setSellPrice] = useState('');
   const [stock, setStock] = useState('');
   const [sector, setSector] = useState('');
+  const [observation, setObservation] = useState('');
   const [image, setImage] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const importInputRef = useRef<HTMLInputElement>(null);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [viewingObservationProduct, setViewingObservationProduct] = useState<Product | null>(null);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
   const [minCostPrice, setMinCostPrice] = useState('');
   const [maxCostPrice, setMaxCostPrice] = useState('');
   const [minSellPrice, setMinSellPrice] = useState('');
@@ -66,10 +77,22 @@ const Products: React.FC<ProductsProps> = ({
   const [selectedPriceTableSector, setSelectedPriceTableSector] = useState('all');
   const priceTableRef = useRef<HTMLDivElement>(null);
 
-  // Update code when products list changes significantly (e.g. after import), 
-  // but only if we are not editing and the field is empty or matches a potential previous auto-gen
-  // Actually, better to just let the user see the auto-code on init or reset.
-  // We'll leave the useEffect out to avoid overwriting user input while they type.
+  // Verificação em tempo real de código duplicado
+  const isCodeDuplicate = useMemo(() => {
+    const trimmed = code.trim().toLowerCase();
+    if (!trimmed) return false;
+    return products.some(p => 
+      p.code.trim().toLowerCase() === trimmed &&
+      (!editingProduct || p.id !== editingProduct.id)
+    );
+  }, [code, products, editingProduct]);
+
+  // Atualizar o código automaticamente para o menor número disponível quando a lista de produtos mudar (ex: ao excluir ou cadastrar)
+  useEffect(() => {
+    if (!editingProduct) {
+      setCode(getNextCode(products));
+    }
+  }, [products, editingProduct]);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -102,6 +125,7 @@ const Products: React.FC<ProductsProps> = ({
     setSellPrice('');
     setStock('');
     setSector('');
+    setObservation('');
     setImage(null);
     const imageInput = document.getElementById('productImage') as HTMLInputElement;
     if (imageInput) {
@@ -112,15 +136,30 @@ const Products: React.FC<ProductsProps> = ({
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Validação de limite de caracteres
+    const finalCode = code.slice(0, 18).trim();
+    const finalName = name.slice(0, 53).trim();
+
+    if (!finalCode) {
+        alert("Por favor, informe um código válido.");
+        return;
+    }
+
+    // Impedir códigos duplicados
+    if (isCodeDuplicate) {
+        alert(`O código "${finalCode}" já está cadastrado para outro produto ou serviço. Cada item deve ter um código único.`);
+        return;
+    }
+
     // Validação específica dependendo do tipo
     if (type === 'product') {
-        if(!code || !name || !costPrice || !sellPrice || !stock) {
+        if(!finalCode || !finalName || !costPrice || !sellPrice || !stock) {
             alert("Por favor, preencha todos os campos obrigatórios para o produto.");
             return;
         }
     } else {
         // Para serviços, custo e estoque não são obrigatórios visualmente
-        if(!code || !name || !sellPrice) {
+        if(!finalCode || !finalName || !sellPrice) {
              alert("Por favor, preencha o código, descrição e valor da mão de obra.");
              return;
         }
@@ -130,39 +169,38 @@ const Products: React.FC<ProductsProps> = ({
     const finalCostPrice = type === 'service' ? 0 : parseFloat(costPrice);
     const finalStock = type === 'service' ? 0 : (parseInt(stock, 10) || 0);
 
-    // Calculate the next code to prepopulate the form after save
-    // We assume if the current code is numeric, we increment it. 
-    // If not, we fall back to getNextCode() in resetForm (which might be stale inside this closure before re-render, 
-    // so using the current code input is safer for sequential entry).
-    const currentCodeNum = parseInt(code, 10);
-    const nextCodeVal = !isNaN(currentCodeNum) 
-        ? String(currentCodeNum + 1).padStart(4, '0') 
-        : undefined;
+    // Calcular o próximo código para o formulário (menor número disponível a partir de 0001)
+    const futureList = editingProduct 
+        ? products.map(p => p.id === editingProduct.id ? { ...p, code: finalCode } : p)
+        : [...products, { id: 'temp', code: finalCode } as Product];
+    const nextCodeVal = getNextCode(futureList);
 
     if (editingProduct) {
         updateProduct({
             ...editingProduct,
             type,
-            code,
-            name,
+            code: finalCode,
+            name: finalName,
             costPrice: finalCostPrice,
             sellPrice: parseFloat(sellPrice),
             stock: finalStock,
             sector: sector || undefined,
             image: image || editingProduct.image,
+            observation: observation.trim() || undefined,
         });
         alert('Item atualizado com sucesso!');
         resetForm(); // For edit, we usually just want to clear or go back to auto-gen based on list
     } else {
         addProduct({
           type,
-          code,
-          name,
+          code: finalCode,
+          name: finalName,
           costPrice: finalCostPrice,
           sellPrice: parseFloat(sellPrice),
           stock: finalStock,
           sector: sector || undefined,
           image: image || undefined,
+          observation: observation.trim() || undefined,
         });
         // Pass the calculated next code to resetForm
         resetForm(nextCodeVal);
@@ -178,6 +216,7 @@ const Products: React.FC<ProductsProps> = ({
     setSellPrice(String(product.sellPrice));
     setStock(String(product.stock));
     setSector(product.sector || '');
+    setObservation(product.observation || '');
     setImage(product.image || null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -218,7 +257,7 @@ const Products: React.FC<ProductsProps> = ({
       return;
     }
 
-    const dataToExport = products.map(({ type, code, name, costPrice, sellPrice, stock, sector }) => ({
+    const dataToExport = products.map(({ type, code, name, costPrice, sellPrice, stock, sector, observation }) => ({
         type: type || 'product',
         code,
         name,
@@ -226,6 +265,7 @@ const Products: React.FC<ProductsProps> = ({
         sellPrice,
         stock,
         sector: sector || '',
+        observation: observation || '',
     }));
     
     // @ts-ignore
@@ -288,8 +328,10 @@ const Products: React.FC<ProductsProps> = ({
                  return;
             }
 
+            const existingCodesSet = new Set(products.map(p => p.code.trim().toLowerCase()));
+
             results.data.forEach((row: any, index: number) => {
-                const { type, code, name, costPrice, sellPrice, stock, sector } = row;
+                const { type, code, name, costPrice, sellPrice, stock, sector, observation } = row;
                 
                 // Basic validation
                 // Use parseNumber to check sellPrice validity
@@ -297,15 +339,23 @@ const Products: React.FC<ProductsProps> = ({
                     errors.push(`Linha ${index + 2}: Dados inválidos ou faltando.`);
                     return;
                 }
+
+                const trimmedCode = String(code).trim().slice(0, 18);
+                if (existingCodesSet.has(trimmedCode.toLowerCase())) {
+                    errors.push(`Linha ${index + 2}: Código "${trimmedCode}" já está cadastrado no sistema.`);
+                    return;
+                }
+                existingCodesSet.add(trimmedCode.toLowerCase());
                 
                 newProducts.push({
                     type: (type === 'service' ? 'service' : 'product'),
-                    code,
-                    name,
+                    code: trimmedCode,
+                    name: String(name).slice(0, 53),
                     costPrice: parseNumber(costPrice),
                     sellPrice: parseNumber(sellPrice),
                     stock: parseInt(stock, 10) || 0,
                     sector: sector || undefined,
+                    observation: observation || undefined,
                     image: undefined,
                 });
             });
@@ -382,13 +432,14 @@ const Products: React.FC<ProductsProps> = ({
       
       document.body.innerHTML = `<style>
           body { font-family: sans-serif; color: #334155; }
-          .price-table-print { padding: 1rem; }
+          .price-table-print { padding: 1rem; padding-bottom: 3rem; }
           .company-header { text-align: center; margin-bottom: 1rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 1rem; }
           .company-header .logo { max-height: 70px; margin: 0 auto 1rem; display: block; }
           .company-header p { font-size: 0.9rem; margin: 2px 0; color: #475569; }
           .price-table-print .main-title { font-size: 1.8rem; font-weight: 600; margin-bottom: 1.5rem; color: #1e293b; text-align: center; }
           .price-table-print h4 { font-size: 1.25rem; font-weight: 600; margin-top: 1.5rem; margin-bottom: 0.5rem; padding-bottom: 0.25rem; border-bottom: 1px solid #e2e8f0; }
-          .price-table-print table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+          .price-table-print table { width: 100%; border-collapse: collapse; margin-top: 1rem; margin-bottom: 1.5rem; page-break-inside: auto; }
+          .price-table-print tr { page-break-inside: avoid; page-break-after: auto; }
           .price-table-print th, .price-table-print td { border: 1px solid #e2e8f0; padding: 8px; text-align: left; vertical-align: middle; }
           .price-table-print th { background-color: #f8fafc; font-size: 0.75rem; text-transform: uppercase; }
           .price-table-print td img { max-width: 60px; max-height: 60px; object-fit: cover; border-radius: 0.25rem; }
@@ -415,10 +466,16 @@ const Products: React.FC<ProductsProps> = ({
     const container = document.createElement('div');
     container.style.position = 'absolute';
     container.style.left = '-9999px';
-    container.style.padding = '20px';
+    container.style.top = '0px';
     container.style.width = '210mm';
+    container.style.height = 'auto';
+    container.style.overflow = 'visible';
+    container.style.padding = '20px';
+    container.style.boxSizing = 'border-box';
     container.style.fontFamily = 'sans-serif';
     container.style.color = '#334155';
+    container.style.backgroundColor = '#ffffff';
+    container.style.zIndex = '-9999';
 
     const title = companyInfo?.name || 'Tabela de Preços';
 
@@ -432,29 +489,30 @@ const Products: React.FC<ProductsProps> = ({
         if (logo) {
             const logoImg = document.createElement('img');
             logoImg.src = logo;
-            logoImg.style.maxHeight = '70px';
-            logoImg.style.margin = '0 auto 1rem';
+            logoImg.style.maxHeight = '65px';
+            logoImg.style.margin = '0 auto 0.75rem';
+            logoImg.style.display = 'block';
             companyHeaderDiv.appendChild(logoImg);
         }
         
         if (companyInfo.address) {
           const address = document.createElement('p');
           address.textContent = `${companyInfo.address}, ${companyInfo.city || ''} - ${companyInfo.zipCode || ''}`;
-          address.style.fontSize = '0.9rem'; address.style.margin = '2px 0'; address.style.color = '#475569';
+          address.style.fontSize = '0.85rem'; address.style.margin = '2px 0'; address.style.color = '#475569';
           companyHeaderDiv.appendChild(address);
         }
 
         if (companyInfo.cnpj) {
           const cnpj = document.createElement('p');
           cnpj.textContent = `CNPJ: ${companyInfo.cnpj}`;
-          cnpj.style.fontSize = '0.9rem'; cnpj.style.margin = '2px 0'; cnpj.style.color = '#475569';
+          cnpj.style.fontSize = '0.85rem'; cnpj.style.margin = '2px 0'; cnpj.style.color = '#475569';
           companyHeaderDiv.appendChild(cnpj);
         }
 
         if (companyInfo.phone || companyInfo.email) {
           const contact = document.createElement('p');
           contact.textContent = `${companyInfo.phone ? `Tel: ${companyInfo.phone}` : ''}${companyInfo.phone && companyInfo.email ? ' | ' : ''}${companyInfo.email ? `Email: ${companyInfo.email}` : ''}`;
-          contact.style.fontSize = '0.9rem'; contact.style.margin = '2px 0'; contact.style.color = '#475569';
+          contact.style.fontSize = '0.85rem'; contact.style.margin = '2px 0'; contact.style.color = '#475569';
           companyHeaderDiv.appendChild(contact);
         }
         container.appendChild(companyHeaderDiv);
@@ -462,24 +520,35 @@ const Products: React.FC<ProductsProps> = ({
     
     const header = document.createElement('h2');
     header.textContent = title;
-    header.style.fontSize = '1.8rem';
+    header.style.fontSize = '1.6rem';
     header.style.fontWeight = '600';
-    header.style.marginBottom = '1.5rem';
+    header.style.marginBottom = '1rem';
     header.style.color = '#1e293b';
     header.style.textAlign = 'center';
     container.appendChild(header);
     
-    container.appendChild(input.cloneNode(true));
+    const clonedInput = input.cloneNode(true) as HTMLElement;
+    container.appendChild(clonedInput);
     document.body.appendChild(container);
 
     try {
+      // Small pause to ensure image rendering inside DOM
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      const fullHeight = Math.max(container.scrollHeight, container.offsetHeight, 800);
+      const fullWidth = Math.max(container.scrollWidth, container.offsetWidth, 794);
+
       // @ts-ignore
       const canvas = await window.html2canvas(container, {
           scale: 2,
           useCORS: true,
           logging: false,
-          width: container.scrollWidth,
-          height: container.scrollHeight,
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: fullWidth,
+          windowHeight: fullHeight,
+          width: fullWidth,
+          height: fullHeight,
       });
       
       const imgData = canvas.toDataURL('image/png');
@@ -494,20 +563,36 @@ const Products: React.FC<ProductsProps> = ({
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
       const imgProps = pdf.getImageProperties(imgData);
-      const imgRatio = imgProps.width / imgProps.height;
       
-      let finalImgWidth = pdfWidth - 20;
-      let finalImgHeight = finalImgWidth / imgRatio;
+      const margin = 10;
+      const printableWidth = pdfWidth - (margin * 2);
+      const printableHeight = pdfHeight - (margin * 2);
+      const imgHeightInPdf = (imgProps.height * printableWidth) / imgProps.width;
 
-      if (finalImgHeight > pdfHeight - 20) {
-          finalImgHeight = pdfHeight - 20;
-          finalImgWidth = finalImgHeight * imgRatio;
+      if (imgHeightInPdf <= printableHeight) {
+          pdf.addImage(imgData, 'PNG', margin, margin, printableWidth, imgHeightInPdf);
+      } else if (imgHeightInPdf <= printableHeight * 1.25) {
+          // Scale down proportionally to fit all items on 1 page cleanly without truncation
+          const scale = printableHeight / imgHeightInPdf;
+          const scaledWidth = printableWidth * scale;
+          const xOffset = margin + (printableWidth - scaledWidth) / 2;
+          pdf.addImage(imgData, 'PNG', xOffset, margin, scaledWidth, printableHeight);
+      } else {
+          // Multi-page document
+          let heightLeft = imgHeightInPdf;
+          let pageCount = 0;
+
+          while (heightLeft > 0) {
+              if (pageCount > 0) {
+                  pdf.addPage();
+              }
+              const position = margin - (pageCount * printableHeight);
+              pdf.addImage(imgData, 'PNG', margin, position, printableWidth, imgHeightInPdf);
+              heightLeft -= printableHeight;
+              pageCount++;
+          }
       }
-      
-      const x = (pdfWidth - finalImgWidth) / 2;
-      const y = 10;
-      
-      pdf.addImage(imgData, 'PNG', x, y, finalImgWidth, finalImgHeight);
+
       const date = new Date().toISOString().slice(0, 10);
       pdf.save(`Tabela-de-Precos-${date}.pdf`);
 
@@ -515,7 +600,9 @@ const Products: React.FC<ProductsProps> = ({
         console.error("Erro ao gerar PDF da Tabela de Preços:", error);
         alert("Ocorreu um erro ao gerar o PDF.");
     } finally {
-        document.body.removeChild(container);
+        if (document.body.contains(container)) {
+          document.body.removeChild(container);
+        }
     }
   };
 
@@ -557,21 +644,50 @@ const Products: React.FC<ProductsProps> = ({
           </div>
 
           <div>
-            <label htmlFor="code" className="block text-sm font-medium text-slate-700">Código</label>
+            <div className="flex justify-between items-center">
+              <label htmlFor="code" className="block text-sm font-medium text-slate-700">Código</label>
+              <span className={`text-xs ${code.length >= 18 ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
+                {code.length}/18
+              </span>
+            </div>
             <input 
                 type="text" 
                 id="code" 
                 value={code} 
-                onChange={(e) => setCode(e.target.value)} 
-                className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" 
+                onChange={(e) => setCode(e.target.value.slice(0, 18))} 
+                maxLength={18}
+                className={`mt-1 block w-full px-3 py-2 bg-white border ${
+                  isCodeDuplicate 
+                    ? 'border-red-500 text-red-900 focus:ring-red-500 focus:border-red-500 bg-red-50/20' 
+                    : 'border-slate-300 focus:ring-[--color-primary-500] focus:border-[--color-primary-500]'
+                } rounded-md shadow-sm focus:outline-none`} 
                 required 
                 placeholder="Ex: 0001"
             />
-             <p className="text-xs text-slate-500 mt-1">Código gerado automaticamente, mas pode ser editado.</p>
+            {isCodeDuplicate ? (
+              <p className="text-xs text-red-600 font-semibold mt-1 flex items-center gap-1">
+                ⚠️ Este código já está cadastrado para outro item. Não são permitidos códigos iguais.
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500 mt-1">Código gerado automaticamente, mas pode ser editado (máx. 18 caracteres).</p>
+            )}
           </div>
           <div>
-            <label htmlFor="productName" className="block text-sm font-medium text-slate-700">{type === 'product' ? 'Nome do Produto' : 'Descrição da Mão de Obra'}</label>
-            <input type="text" id="productName" value={name} onChange={(e) => setName(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" required />
+            <div className="flex justify-between items-center">
+              <label htmlFor="productName" className="block text-sm font-medium text-slate-700">{type === 'product' ? 'Nome do Produto' : 'Descrição da Mão de Obra'}</label>
+              <span className={`text-xs ${name.length >= 53 ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
+                {name.length}/53
+              </span>
+            </div>
+            <input 
+                type="text" 
+                id="productName" 
+                value={name} 
+                onChange={(e) => setName(e.target.value.slice(0, 53))} 
+                maxLength={53}
+                className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" 
+                required 
+            />
           </div>
            {quoteSettings.sectors.length > 0 && (
             <div>
@@ -622,12 +738,33 @@ const Products: React.FC<ProductsProps> = ({
               <input type="number" step="0.01" id="sellPrice" value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" required />
             </div>
           </div>
+          {type === 'product' && !isNaN(parseFloat(costPrice)) && !isNaN(parseFloat(sellPrice)) && parseFloat(costPrice) > parseFloat(sellPrice) && (
+            <div className="p-3 bg-red-50 border border-red-300 rounded-md text-red-700 text-sm font-medium flex items-center gap-2">
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 text-red-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+              <span>
+                <strong>Atenção:</strong> O valor do custo (R$ {parseFloat(costPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}) é maior do que o valor da venda (R$ {parseFloat(sellPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}).
+              </span>
+            </div>
+          )}
           {type === 'product' && (
             <div>
                 <label htmlFor="stock" className="block text-sm font-medium text-slate-700">Quantidade em Estoque</label>
                 <input type="number" id="stock" value={stock} onChange={(e) => setStock(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" required />
             </div>
           )}
+          <div>
+            <label htmlFor="observation" className="block text-sm font-medium text-slate-700">Observação (Opcional)</label>
+            <textarea
+              id="observation"
+              rows={2}
+              value={observation}
+              onChange={(e) => setObservation(e.target.value)}
+              placeholder="Anotações ou detalhes sobre o produto/serviço..."
+              className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500] text-sm"
+            />
+          </div>
           <div className="flex flex-col gap-2 pt-2">
             <button type="submit" className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${editingProduct ? 'bg-[--color-accent-600] hover:bg-[--color-accent-700] focus:ring-[--color-accent-500]' : 'bg-[--color-primary-600] hover:bg-[--color-primary-700] focus:ring-[--color-primary-500]'} focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors`}>
               {editingProduct ? 'Salvar Alterações' : (type === 'product' ? 'Adicionar Produto' : 'Adicionar Mão de Obra')}
@@ -764,7 +901,16 @@ const Products: React.FC<ProductsProps> = ({
                             <button onClick={() => handleEditClick(product)} className="inline-flex items-center justify-center p-2 border border-transparent text-sm font-medium rounded-md text-[--color-accent-700] bg-[--color-accent-100] hover:bg-[--color-accent-200] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-accent-500]" title="Editar">
                                 <PencilIcon className="h-4 w-4"/>
                             </button>
-                            <button onClick={() => deleteProduct(product.id)} className="inline-flex items-center justify-center p-2 border border-transparent text-sm font-medium rounded-md text-[--color-destructive-700] bg-[--color-destructive-100] hover:bg-[--color-destructive-200] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-destructive-500]" title="Excluir">
+                            <button 
+                                onClick={() => setViewingObservationProduct(product)} 
+                                className={`inline-flex items-center justify-center p-2 border border-transparent text-sm font-medium rounded-md ${
+                                  product.observation ? 'text-amber-800 bg-amber-100 hover:bg-amber-200' : 'text-slate-600 bg-slate-100 hover:bg-slate-200'
+                                } focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-slate-400`} 
+                                title="Ver Observação"
+                            >
+                                <FileTextIcon className="h-4 w-4"/>
+                            </button>
+                            <button onClick={() => setProductToDelete(product)} className="inline-flex items-center justify-center p-2 border border-transparent text-sm font-medium rounded-md text-[--color-destructive-700] bg-[--color-destructive-100] hover:bg-[--color-destructive-200] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-destructive-500]" title="Excluir">
                                 <TrashIcon className="h-4 w-4"/>
                             </button>
                         </div>
@@ -883,7 +1029,6 @@ const Products: React.FC<ProductsProps> = ({
                                     <thead className="bg-slate-50">
                                         <tr>
                                         {quoteSettings.showImageInPriceTable && <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-24">Imagem</th>}
-                                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Tipo</th>
                                         <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Código</th>
                                         <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Item</th>
                                         <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Preço de Venda</th>
@@ -901,9 +1046,6 @@ const Products: React.FC<ProductsProps> = ({
                                                 )}
                                             </td>
                                             )}
-                                            <td className="px-4 py-2 whitespace-nowrap text-sm text-slate-500">
-                                                {product.type === 'service' ? 'Serviço' : 'Produto'}
-                                            </td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm text-slate-500">{product.code}</td>
                                             <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-slate-900">
                                                 {product.name.charAt(0).toUpperCase() + product.name.slice(1).toLowerCase()}
@@ -923,6 +1065,100 @@ const Products: React.FC<ProductsProps> = ({
         )}
 
       </div>
+
+      {viewingObservationProduct && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 relative animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-start mb-4 border-b pb-3">
+              <div>
+                <h3 className="text-lg font-bold text-slate-900 flex items-center gap-2">
+                  <FileTextIcon className="w-5 h-5 text-amber-500" />
+                  Observação do Item
+                </h3>
+                <p className="text-sm text-slate-500 font-medium">
+                  {viewingObservationProduct.name} <span className="text-slate-400">(Cód: {viewingObservationProduct.code})</span>
+                </p>
+              </div>
+              <button
+                onClick={() => setViewingObservationProduct(null)}
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-100 transition-colors"
+                title="Fechar"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 my-4 text-slate-800 text-sm whitespace-pre-wrap min-h-[100px] max-h-[300px] overflow-y-auto">
+              {viewingObservationProduct.observation ? (
+                viewingObservationProduct.observation
+              ) : (
+                <span className="text-slate-400 italic flex items-center justify-center h-20">
+                  Nenhuma observação cadastrada para este item.
+                </span>
+              )}
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                onClick={() => {
+                  const p = viewingObservationProduct;
+                  setViewingObservationProduct(null);
+                  handleEditClick(p);
+                }}
+                className="px-4 py-2 text-sm font-medium text-[--color-accent-700] bg-[--color-accent-100] hover:bg-[--color-accent-200] rounded-md transition-colors"
+              >
+                Editar Item / Observação
+              </button>
+              <button
+                onClick={() => setViewingObservationProduct(null)}
+                className="px-4 py-2 text-sm font-medium text-white bg-slate-700 hover:bg-slate-800 rounded-md transition-colors"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {productToDelete && (
+        <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 relative animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center gap-3 mb-4 text-[--color-destructive-600]">
+              <div className="p-2.5 bg-[--color-destructive-100] rounded-full">
+                <TrashIcon className="w-6 h-6 text-[--color-destructive-600]" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Confirmar Exclusão</h3>
+                <p className="text-xs text-slate-500 font-medium">Esta ação não poderá ser desfeita.</p>
+              </div>
+            </div>
+
+            <p className="text-slate-700 text-sm mb-6 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
+              Tem certeza que deseja excluir o item <strong className="text-slate-900">{productToDelete.name}</strong> <span className="text-slate-500">(Cód: {productToDelete.code})</span>?
+            </p>
+
+            <div className="flex justify-end gap-3 pt-2 border-t">
+              <button
+                type="button"
+                onClick={() => setProductToDelete(null)}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  deleteProduct(productToDelete.id);
+                  setProductToDelete(null);
+                }}
+                className="px-4 py-2 text-sm font-medium text-white bg-[--color-destructive-600] hover:bg-[--color-destructive-700] rounded-md transition-colors shadow-sm"
+              >
+                Excluir
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

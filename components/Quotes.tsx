@@ -89,13 +89,7 @@ const Quotes: React.FC<QuotesProps> = ({
     const handler = setTimeout(() => {
         const draft = {
             selectedClientId,
-            quoteItems: quoteItems.map(i => ({
-                ...i,
-                product: {
-                    ...i.product,
-                    image: i.product.image && i.product.image.length > 50000 ? undefined : i.product.image
-                }
-            })),
+            quoteItems,
             notes,
             discount,
             discountType,
@@ -490,12 +484,13 @@ const Quotes: React.FC<QuotesProps> = ({
 
     const itemsRows = quote.items.map(item => `
       <tr style="border-bottom: 1px solid #f1f5f9;">
-        <td style="padding: 4px 6px; text-align: center; font-size: 12px;">${item.quantity}</td>
-        ${quoteSettings.showProductCode ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569;">${item.product.code || '-'}</td>` : ''}
-        ${quoteSettings.showProductSector ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569;">${item.product.sector || '-'}</td>` : ''}
-        <td style="padding: 4px 6px; font-size: 12px;">${item.product.name}</td>
-        <td style="padding: 4px 6px; text-align: right; font-size: 12px;">${item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-        <td style="padding: 4px 6px; text-align: right; font-size: 12px;">${(item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td style="padding: 4px 6px; text-align: center; font-size: 12px; vertical-align: middle;">${item.quantity}</td>
+        ${quoteSettings.showProductImage ? `<td style="padding: 4px 6px; text-align: center; vertical-align: middle; width: 50px;">${item.product.image ? `<img src="${item.product.image}" alt="${item.product.name}" style="max-height: 40px; max-width: 40px; object-fit: contain; display: block; margin: 0 auto; border-radius: 4px;" />` : '-'}</td>` : ''}
+        ${quoteSettings.showProductCode ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569; vertical-align: middle;">${item.product.code || '-'}</td>` : ''}
+        ${quoteSettings.showProductSector ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569; vertical-align: middle;">${item.product.sector || '-'}</td>` : ''}
+        <td style="padding: 4px 6px; font-size: 12px; vertical-align: middle;">${item.product.name}</td>
+        <td style="padding: 4px 6px; text-align: right; font-size: 12px; vertical-align: middle;">${item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+        <td style="padding: 4px 6px; text-align: right; font-size: 12px; vertical-align: middle;">${(item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       </tr>
     `).join('');
 
@@ -566,6 +561,7 @@ const Quotes: React.FC<QuotesProps> = ({
           <thead>
             <tr style="border-top: 1px solid #334155; border-bottom: 1px solid #334155; text-align: left;">
               <th style="padding: 4px 6px; width: 64px; font-weight: normal; color: #0f172a;">Quantidade</th>
+              ${quoteSettings.showProductImage ? '<th style="padding: 4px 6px; width: 50px; font-weight: normal; color: #0f172a; text-align: center;">Imagem</th>' : ''}
               ${quoteSettings.showProductCode ? '<th style="padding: 4px 6px; width: 112px; font-weight: normal; color: #0f172a;">Código</th>' : ''}
               ${quoteSettings.showProductSector ? '<th style="padding: 4px 6px; width: 80px; font-weight: normal; color: #0f172a;">Setor</th>' : ''}
               <th style="padding: 4px 6px; font-weight: normal; color: #0f172a;">Descrição</th>
@@ -659,7 +655,7 @@ const Quotes: React.FC<QuotesProps> = ({
 
     try {
         // @ts-ignore
-        const canvas = await window.html2canvas(input, { scale: 2, useCORS: true, logging: false });
+        const canvas = await window.html2canvas(input, { scale: 2, useCORS: true, logging: false, scrollX: 0, scrollY: 0 });
         const imgData = canvas.toDataURL('image/png');
         // @ts-ignore
         const { jsPDF } = window.jspdf;
@@ -1079,6 +1075,7 @@ const Quotes: React.FC<QuotesProps> = ({
                       <thead>
                           <tr className="border-y border-slate-700 text-left text-slate-900 font-normal">
                               <th className="py-1 px-1.5 w-16">Quantidade</th>
+                              {quoteSettings.showProductImage && <th className="py-1 px-1.5 w-14 text-center">Imagem</th>}
                               {quoteSettings.showProductCode && <th className="py-1 px-1.5 w-28">Código</th>}
                               {quoteSettings.showProductSector && <th className="py-1 px-1.5 w-20">Setor</th>}
                               <th className="py-1 px-1.5">Descrição</th>
@@ -1090,7 +1087,7 @@ const Quotes: React.FC<QuotesProps> = ({
                       <tbody className="divide-y divide-slate-100 text-slate-800">
                           {productItems.map((item, idx) => (
                               <tr key={`prod-${idx}`}>
-                                  <td className="py-1 px-1.5 text-center">
+                                  <td className="py-1 px-1.5 text-center align-middle">
                                       <input 
                                          type="number" 
                                          min="1"
@@ -1100,12 +1097,25 @@ const Quotes: React.FC<QuotesProps> = ({
                                       />
                                       <span className="hidden print-visible-inline">{item.quantity}</span>
                                   </td>
-                                  {quoteSettings.showProductCode && <td className="py-1 px-1.5 text-slate-600">{item.product.code || '-'}</td>}
-                                  {quoteSettings.showProductSector && <td className="py-1 px-1.5 text-slate-600">{item.product.sector || '-'}</td>}
-                                  <td className="py-1 px-1.5">{item.product.name}</td>
-                                  <td className="py-1 px-1.5 text-right">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                  <td className="py-1 px-1.5 text-right">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
-                                  <td className="py-1 px-1.5 text-center print-hidden">
+                                  {quoteSettings.showProductImage && (
+                                      <td className="py-1 px-1.5 text-center align-middle">
+                                          {item.product.image ? (
+                                              <img 
+                                                  src={item.product.image} 
+                                                  alt={item.product.name} 
+                                                  className="w-10 h-10 object-contain rounded border border-slate-200 mx-auto" 
+                                              />
+                                          ) : (
+                                              <span className="text-slate-300 text-xs">-</span>
+                                          )}
+                                      </td>
+                                  )}
+                                  {quoteSettings.showProductCode && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.code || '-'}</td>}
+                                  {quoteSettings.showProductSector && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.sector || '-'}</td>}
+                                  <td className="py-1 px-1.5 align-middle">{item.product.name}</td>
+                                  <td className="py-1 px-1.5 text-right align-middle">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                  <td className="py-1 px-1.5 text-right align-middle">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
+                                  <td className="py-1 px-1.5 text-center align-middle print-hidden">
                                       <button onClick={() => handleRemoveItem(item.product.id)} className="text-slate-400 hover:text-[--color-destructive-500]">
                                           <TrashIcon className="h-3.5 w-3.5" />
                                       </button>
@@ -1115,7 +1125,7 @@ const Quotes: React.FC<QuotesProps> = ({
 
                           {serviceItems.map((item, idx) => (
                               <tr key={`serv-${idx}`}>
-                                  <td className="py-1 px-1.5 text-center">
+                                  <td className="py-1 px-1.5 text-center align-middle">
                                       <input 
                                          type="number" 
                                          min="1"
@@ -1125,12 +1135,25 @@ const Quotes: React.FC<QuotesProps> = ({
                                       />
                                       <span className="hidden print-visible-inline">{item.quantity}</span>
                                   </td>
-                                  {quoteSettings.showProductCode && <td className="py-1 px-1.5 text-slate-600">{item.product.code || '-'}</td>}
-                                  {quoteSettings.showProductSector && <td className="py-1 px-1.5 text-slate-600">{item.product.sector || '-'}</td>}
-                                  <td className="py-1 px-1.5">{item.product.name}</td>
-                                  <td className="py-1 px-1.5 text-right">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                  <td className="py-1 px-1.5 text-right">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
-                                  <td className="py-1 px-1.5 text-center print-hidden">
+                                  {quoteSettings.showProductImage && (
+                                      <td className="py-1 px-1.5 text-center align-middle">
+                                          {item.product.image ? (
+                                              <img 
+                                                  src={item.product.image} 
+                                                  alt={item.product.name} 
+                                                  className="w-10 h-10 object-contain rounded border border-slate-200 mx-auto" 
+                                              />
+                                          ) : (
+                                              <span className="text-slate-300 text-xs">-</span>
+                                          )}
+                                      </td>
+                                  )}
+                                  {quoteSettings.showProductCode && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.code || '-'}</td>}
+                                  {quoteSettings.showProductSector && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.sector || '-'}</td>}
+                                  <td className="py-1 px-1.5 align-middle">{item.product.name}</td>
+                                  <td className="py-1 px-1.5 text-right align-middle">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                  <td className="py-1 px-1.5 text-right align-middle">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
+                                  <td className="py-1 px-1.5 text-center align-middle print-hidden">
                                       <button onClick={() => handleRemoveItem(item.product.id)} className="text-slate-400 hover:text-[--color-destructive-500]">
                                           <TrashIcon className="h-3.5 w-3.5" />
                                       </button>
@@ -1140,7 +1163,7 @@ const Quotes: React.FC<QuotesProps> = ({
 
                           {quoteItems.length === 0 && (
                               <tr>
-                                  <td colSpan={quoteSettings.showProductCode ? 6 : 5} className="py-8 text-center text-slate-400 italic">
+                                  <td colSpan={4 + (quoteSettings.showProductImage ? 1 : 0) + (quoteSettings.showProductCode ? 1 : 0) + (quoteSettings.showProductSector ? 1 : 0) + 1} className="py-8 text-center text-slate-400 italic">
                                       Adicione produtos ou serviços para começar o orçamento
                                   </td>
                               </tr>

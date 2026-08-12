@@ -34,6 +34,7 @@ export interface Product {
   stock: number;
   image?: string;
   sector?: string;
+  observation?: string;
 }
 
 export interface QuoteItem {
