@@ -22,13 +22,15 @@ interface SettingsProps {
   onRestore: (file: File) => void;
   companyInfo: CompanyInfo | null;
   onSetCompanyInfo: (info: CompanyInfo) => void;
+  onSyncImport?: (payload: any) => void;
 }
 
 const Settings: React.FC<SettingsProps> = ({ 
   logo, onSetLogo, onDeleteLogo, 
   quoteSettings, onSetQuoteSettings,
   onBackup, onRestore,
-  companyInfo, onSetCompanyInfo
+  companyInfo, onSetCompanyInfo,
+  onSyncImport
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const restoreInputRef = React.useRef<HTMLInputElement>(null);
@@ -59,10 +61,43 @@ const Settings: React.FC<SettingsProps> = ({
     if (href.includes('aistudio.google.com') || href.includes('ais-dev-') || href.includes('localhost')) {
       return PUBLIC_APP_URL;
     }
-    return href;
+    return href.split('#')[0].split('?')[0];
   };
 
-  const appSyncUrl = getCleanAppUrl();
+  const getFullSyncUrl = () => {
+    try {
+      const clientsStr = localStorage.getItem('clients') || '[]';
+      const productsStr = localStorage.getItem('products') || '[]';
+      const quotesStr = localStorage.getItem('savedQuotes') || '[]';
+      const compInfoStr = localStorage.getItem('companyInfo') || 'null';
+      const settingsStr = localStorage.getItem('quoteSettings') || 'null';
+
+      const parsedProducts = JSON.parse(productsStr);
+      // Strip very large image base64 strings to keep QR code / URL compact
+      const compactProducts = Array.isArray(parsedProducts)
+        ? parsedProducts.map((p: any) => ({
+            ...p,
+            image: p.image && p.image.length > 500 ? undefined : p.image
+          }))
+        : [];
+
+      const payload = {
+        clients: JSON.parse(clientsStr),
+        products: compactProducts,
+        savedQuotes: JSON.parse(quotesStr),
+        companyInfo: JSON.parse(compInfoStr),
+        quoteSettings: JSON.parse(settingsStr),
+      };
+
+      const jsonStr = JSON.stringify(payload);
+      const encodedPayload = encodeUnicodeBase64(jsonStr);
+      return `${getCleanAppUrl()}#sync=${encodeURIComponent(encodedPayload)}`;
+    } catch (e) {
+      return getCleanAppUrl();
+    }
+  };
+
+  const appSyncUrl = getFullSyncUrl();
 
   const handleCopyLink = () => {
     if (appSyncUrl) {
@@ -115,10 +150,10 @@ const Settings: React.FC<SettingsProps> = ({
             const decodedJson = decodeUnicodeBase64(cleanStr);
             payload = JSON.parse(decodedJson);
           } catch (e2) {
-            if (rawStr.startsWith('http://') || rawStr.startsWith('https://')) {
+            if ((rawStr.startsWith('http://') || rawStr.startsWith('https://')) && !rawStr.includes('sync=')) {
               setSyncFeedback({
-                type: 'success',
-                message: '✅ Link de sincronização reconhecido! Seu dispositivo está vinculado e sincronizando na rede.'
+                type: 'error',
+                message: 'O link colado não contém os dados de sincronização (#sync=...). No aparelho de origem, clique em "Gerar Link com Todos os Dados" e cole o link gerado aqui.'
               });
               setIsSyncingPasted(false);
               return;
@@ -130,25 +165,24 @@ const Settings: React.FC<SettingsProps> = ({
         if (payload && typeof payload === 'object') {
           const counts = { clients: 0, products: 0, quotes: 0 };
 
-          if (Array.isArray(payload.clients)) {
-            safeSetItem('clients', JSON.stringify(payload.clients));
-            counts.clients = payload.clients.length;
-          }
-          if (Array.isArray(payload.products)) {
-            safeSetItem('products', JSON.stringify(payload.products));
-            counts.products = payload.products.length;
-          }
-          if (Array.isArray(payload.savedQuotes)) {
-            safeSetItem('savedQuotes', JSON.stringify(payload.savedQuotes));
-            counts.quotes = payload.savedQuotes.length;
-          }
-          if (payload.companyInfo) {
-            safeSetItem('companyInfo', JSON.stringify(payload.companyInfo));
-            onSetCompanyInfo(payload.companyInfo);
-          }
-          if (payload.quoteSettings) {
-            safeSetItem('quoteSettings', JSON.stringify(payload.quoteSettings));
-            onSetQuoteSettings(payload.quoteSettings);
+          if (Array.isArray(payload.clients)) counts.clients = payload.clients.length;
+          if (Array.isArray(payload.products)) counts.products = payload.products.length;
+          if (Array.isArray(payload.savedQuotes)) counts.quotes = payload.savedQuotes.length;
+
+          if (onSyncImport) {
+            onSyncImport(payload);
+          } else {
+            if (Array.isArray(payload.clients)) safeSetItem('clients', JSON.stringify(payload.clients));
+            if (Array.isArray(payload.products)) safeSetItem('products', JSON.stringify(payload.products));
+            if (Array.isArray(payload.savedQuotes)) safeSetItem('savedQuotes', JSON.stringify(payload.savedQuotes));
+            if (payload.companyInfo) {
+              safeSetItem('companyInfo', JSON.stringify(payload.companyInfo));
+              onSetCompanyInfo(payload.companyInfo);
+            }
+            if (payload.quoteSettings) {
+              safeSetItem('quoteSettings', JSON.stringify(payload.quoteSettings));
+              onSetQuoteSettings(payload.quoteSettings);
+            }
           }
 
           if ('BroadcastChannel' in window) {
@@ -163,7 +197,7 @@ const Settings: React.FC<SettingsProps> = ({
 
           setSyncFeedback({
             type: 'success',
-            message: `✅ Sincronização concluída com sucesso! Atualizados: ${counts.clients} clientes, ${counts.products} produtos e ${counts.quotes} orçamentos.`
+            message: `✅ Sincronização concluída com sucesso! Importados e visíveis: ${counts.clients} clientes, ${counts.products} produtos e ${counts.quotes} orçamentos.`
           });
           setPastedSyncInput('');
         } else {

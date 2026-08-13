@@ -161,14 +161,17 @@ const App: React.FC = () => {
           if (Array.isArray(payload.clients)) {
             setClients(payload.clients);
             safeSetItem('clients', JSON.stringify(payload.clients));
+            saveToIndexedDB('clients', payload.clients);
           }
           if (Array.isArray(payload.products)) {
             setProducts(payload.products);
             safeSetItem('products', JSON.stringify(payload.products));
+            saveToIndexedDB('products', payload.products);
           }
           if (Array.isArray(payload.savedQuotes)) {
             setSavedQuotes(payload.savedQuotes);
             safeSetItem('savedQuotes', JSON.stringify(payload.savedQuotes));
+            saveToIndexedDB('savedQuotes', payload.savedQuotes);
           }
           if (payload.companyInfo) {
             setCompanyInfo(payload.companyInfo);
@@ -540,6 +543,34 @@ const App: React.FC = () => {
     reader.readAsText(file);
   };
 
+  const handleSyncImport = (payload: any) => {
+    if (!payload || typeof payload !== 'object') return;
+
+    if (Array.isArray(payload.clients)) {
+      setClients(payload.clients);
+      safeSetItem('clients', JSON.stringify(payload.clients));
+      saveToIndexedDB('clients', payload.clients);
+    }
+    if (Array.isArray(payload.products)) {
+      setProducts(payload.products);
+      safeSetItem('products', JSON.stringify(payload.products));
+      saveToIndexedDB('products', payload.products);
+    }
+    if (Array.isArray(payload.savedQuotes)) {
+      setSavedQuotes(payload.savedQuotes);
+      safeSetItem('savedQuotes', JSON.stringify(payload.savedQuotes));
+      saveToIndexedDB('savedQuotes', payload.savedQuotes);
+    }
+    if (payload.companyInfo) {
+      setCompanyInfo(payload.companyInfo);
+      safeSetItem('companyInfo', JSON.stringify(payload.companyInfo));
+    }
+    if (payload.quoteSettings) {
+      setQuoteSettings(payload.quoteSettings);
+      safeSetItem('quoteSettings', JSON.stringify(payload.quoteSettings));
+    }
+  };
+
   const renderContent = () => {
     switch (activeTab) {
       case 'clients':
@@ -581,6 +612,7 @@ const App: React.FC = () => {
                     onRestore={handleRestore}
                     companyInfo={companyInfo}
                     onSetCompanyInfo={handleSetCompanyInfo}
+                    onSyncImport={handleSyncImport}
                 />;
       default:
         return null;
