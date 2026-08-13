@@ -337,7 +337,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, addClient, updateClient, del
                             <span className="bg-slate-100 text-slate-800 border border-slate-300 font-mono text-xs font-bold px-2 py-0.5 rounded">
                                 Cód: {client.code || 'N/A'}
                             </span>
-                            <h3 className="font-bold text-lg text-[--color-primary-800]">{client.name}</h3>
+                            <h3 className="font-bold text-lg text-[--color-primary-600]">{client.name}</h3>
                             <span className={`text-xs font-semibold uppercase px-2 py-1 rounded-full ${client.type === 'physical' ? 'bg-[--color-primary-100] text-[--color-primary-800]' : 'bg-purple-100 text-purple-800'}`}>
                                 {client.type === 'physical' ? 'P. Física' : 'P. Jurídica'}
                             </span>

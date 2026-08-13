@@ -872,7 +872,7 @@ const Products: React.FC<ProductsProps> = ({
                             <div className="flex justify-between items-start">
                                 <div>
                                     <div className="flex items-center gap-2">
-                                        <h3 className="font-bold text-lg text-[--color-primary-800]">{product.name}</h3>
+                                        <h3 className="font-bold text-lg text-[--color-primary-600]">{product.name}</h3>
                                         {product.type === 'service' && (
                                              <span className="text-xs font-bold uppercase px-2 py-0.5 rounded-full bg-blue-100 text-blue-800">
                                                 Serviço

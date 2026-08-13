@@ -113,6 +113,8 @@ const Settings: React.FC<SettingsProps> = ({
     { name: 'Âmbar', value: 'amber', color: 'bg-amber-500' },
     { name: 'Púrpura', value: 'purple', color: 'bg-purple-500' },
     { name: 'Grafite', value: 'slate', color: 'bg-slate-500' },
+    { name: 'Azul Escuro', value: 'darkblue', color: 'bg-blue-900' },
+    { name: 'Preto', value: 'black', color: 'bg-black' },
   ];
 
   const fonts = [
@@ -229,7 +231,7 @@ const Settings: React.FC<SettingsProps> = ({
                     <label className="block text-sm font-medium text-slate-700">Tema de Cores</label>
                     <fieldset className="mt-2">
                         <legend className="sr-only">Escolha um tema de cor</legend>
-                        <div className="flex items-center space-x-4">
+                        <div className="flex flex-wrap items-center gap-4">
                         {themes.map((theme) => (
                             <label key={theme.value} className="flex items-center space-x-2 cursor-pointer">
                             <input
