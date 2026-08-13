@@ -1,7 +1,9 @@
 {
   "name": "SVO1.1",
   "description": "Uma aplicação para gerenciar clientes, produtos e criar orçamentos detalhados. Cadastre seus clientes, adicione seus produtos com preços de custo e venda, e gere orçamentos profissionais de forma rápida e fácil.",
-  "requestFramePermissions": [],
+  "requestFramePermissions": [
+    "camera"
+  ],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
