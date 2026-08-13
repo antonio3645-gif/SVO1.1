@@ -679,6 +679,94 @@ const App: React.FC = () => {
     reader.readAsText(file);
   };
 
+  // --- Force Reload Data Function ---
+  const handleForceReloadData = async (): Promise<{ success: boolean; message: string }> => {
+    if (!syncRoomId) {
+      return { success: false, message: 'Nenhuma sala de sincronização definida.' };
+    }
+
+    try {
+      // 1. Reset timestamp so we bypass cache comparison
+      lastServerUpdateRef.current = 0;
+
+      // 2. Fetch latest data from server
+      const res = await fetch(`/api/sync/${encodeURIComponent(syncRoomId)}?cacheBust=${Date.now()}`);
+      if (!res.ok) {
+        if (res.status === 404) {
+          // If the room doesn't exist on server yet, push current local state to server to initialize it
+          const payload = {
+            clients,
+            products,
+            savedQuotes,
+            companyInfo,
+            quoteSettings,
+          };
+          const pushRes = await fetch('/api/sync/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ roomId: syncRoomId, data: payload }),
+          });
+          if (pushRes.ok) {
+            const json = await pushRes.json();
+            if (json.lastUpdated) {
+              lastServerUpdateRef.current = json.lastUpdated;
+            }
+          }
+          return {
+            success: true,
+            message: `✅ Sala "${syncRoomId}" inicializada no servidor com os dados locais atuais!`
+          };
+        }
+        return { success: false, message: `Erro ao buscar dados do servidor (código ${res.status}).` };
+      }
+
+      const data = await res.json();
+      if (data && typeof data === 'object') {
+        lastServerUpdateRef.current = data.lastUpdated || Date.now();
+        isSelfUpdatingRef.current = true;
+
+        let clientsCount = clients.length;
+        let productsCount = products.length;
+        let quotesCount = savedQuotes.length;
+
+        if (Array.isArray(data.clients)) {
+          setClients(data.clients);
+          safeSetItem('clients', JSON.stringify(data.clients));
+          saveToIndexedDB('clients', data.clients);
+          clientsCount = data.clients.length;
+        }
+        if (Array.isArray(data.products)) {
+          setProducts(data.products);
+          safeSetItem('products', JSON.stringify(data.products));
+          saveToIndexedDB('products', data.products);
+          productsCount = data.products.length;
+        }
+        if (Array.isArray(data.savedQuotes)) {
+          setSavedQuotes(data.savedQuotes);
+          safeSetItem('savedQuotes', JSON.stringify(data.savedQuotes));
+          saveToIndexedDB('savedQuotes', data.savedQuotes);
+          quotesCount = data.savedQuotes.length;
+        }
+        if (data.companyInfo) {
+          setCompanyInfo(data.companyInfo);
+          safeSetItem('companyInfo', JSON.stringify(data.companyInfo));
+        }
+        if (data.quoteSettings) {
+          setQuoteSettings(data.quoteSettings);
+          safeSetItem('quoteSettings', JSON.stringify(data.quoteSettings));
+        }
+
+        return {
+          success: true,
+          message: `✅ Dados recarregados do servidor com sucesso! Atualizados: ${clientsCount} clientes, ${productsCount} produtos e ${quotesCount} orçamentos.`
+        };
+      }
+      return { success: false, message: 'Formato de dados recebido do servidor inválido.' };
+    } catch (err: any) {
+      return { success: false, message: `Falha de conexão com o servidor: ${err.message || 'Erro desconhecido'}` };
+    }
+  };
+
   const handleSyncImport = (payload: any) => {
     if (!payload || typeof payload !== 'object') return;
 
@@ -754,6 +842,7 @@ const App: React.FC = () => {
                     onSyncImport={handleSyncImport}
                     syncRoomId={syncRoomId}
                     onSetSyncRoomId={handleSetSyncRoomId}
+                    onForceReloadData={handleForceReloadData}
                 />;
       default:
         return null;

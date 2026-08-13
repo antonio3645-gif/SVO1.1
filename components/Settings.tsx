@@ -1,7 +1,7 @@
 
 import React, { useState, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { QrCode, Copy, Check, Smartphone, Laptop, Wifi, Camera, Link, Link2, Sparkles, RefreshCw, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { QrCode, Copy, Check, Smartphone, Laptop, Wifi, Camera, Link, Link2, Sparkles, RefreshCw, AlertCircle, CheckCircle2, RotateCcw } from 'lucide-react';
 import { QRScannerModal } from './QRScannerModal';
 import { compressImage, safeSetItem, encodeUnicodeBase64, decodeUnicodeBase64 } from '../utils/storage';
 import { UploadIcon } from './icons/UploadIcon';
@@ -25,6 +25,7 @@ interface SettingsProps {
   onSyncImport?: (payload: any) => void;
   syncRoomId?: string;
   onSetSyncRoomId?: (roomId: string) => void;
+  onForceReloadData?: () => Promise<{ success: boolean; message: string }>;
 }
 
 class SafeQRCode extends React.Component<{ value: string; fallbackValue: string; size?: number }, { hasError: boolean }> {
@@ -69,7 +70,8 @@ const Settings: React.FC<SettingsProps> = ({
   companyInfo, onSetCompanyInfo,
   onSyncImport,
   syncRoomId,
-  onSetSyncRoomId
+  onSetSyncRoomId,
+  onForceReloadData
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const restoreInputRef = React.useRef<HTMLInputElement>(null);
@@ -154,8 +156,35 @@ const Settings: React.FC<SettingsProps> = ({
   // State for Pasted Link Sync
   const [pastedSyncInput, setPastedSyncInput] = useState('');
   const [isSyncingPasted, setIsSyncingPasted] = useState(false);
+  const [isForcingReload, setIsForcingReload] = useState(false);
   const [copiedFullSyncLink, setCopiedFullSyncLink] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  const handleForceReloadClick = async () => {
+    setIsForcingReload(true);
+    setSyncFeedback(null);
+    try {
+      if (onForceReloadData) {
+        const result = await onForceReloadData();
+        setSyncFeedback({
+          type: result.success ? 'success' : 'error',
+          message: result.message
+        });
+      } else {
+        setSyncFeedback({
+          type: 'success',
+          message: '✅ Recarregamento de dados do servidor concluído!'
+        });
+      }
+    } catch (err: any) {
+      setSyncFeedback({
+        type: 'error',
+        message: 'Erro ao recarregar dados do servidor: ' + (err.message || 'Erro desconhecido')
+      });
+    } finally {
+      setIsForcingReload(false);
+    }
+  };
 
   const handleSyncFromPastedInput = async () => {
     setSyncFeedback(null);
@@ -967,6 +996,28 @@ const Settings: React.FC<SettingsProps> = ({
                   >
                     <RefreshCw className={`w-4 h-4 ${isSyncingPasted ? 'animate-spin' : ''}`} />
                     Sincronizar Agora
+                  </button>
+                </div>
+
+                {/* Botão de Forçar Recarregamento */}
+                <div className="pt-3 border-t border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-100/70 p-3.5 rounded-xl border border-slate-200">
+                  <div className="text-xs">
+                    <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <RotateCcw className="w-3.5 h-3.5 text-slate-600" />
+                      Solução Rápida de Dessincronização
+                    </span>
+                    <span className="text-slate-500 text-[11px] block mt-0.5">
+                      Limpa o cache de sincronização local e busca os dados mais recentes do servidor.
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleForceReloadClick}
+                    disabled={isForcingReload}
+                    className="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 bg-slate-800 hover:bg-slate-900 active:bg-slate-950 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-sm flex-shrink-0"
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 ${isForcingReload ? 'animate-spin' : ''}`} />
+                    {isForcingReload ? 'Recarregando...' : 'Forçar Recarregamento de Dados'}
                   </button>
                 </div>
 
