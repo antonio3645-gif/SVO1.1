@@ -23,6 +23,8 @@ interface SettingsProps {
   companyInfo: CompanyInfo | null;
   onSetCompanyInfo: (info: CompanyInfo) => void;
   onSyncImport?: (payload: any) => void;
+  syncRoomId?: string;
+  onSetSyncRoomId?: (roomId: string) => void;
 }
 
 class SafeQRCode extends React.Component<{ value: string; fallbackValue: string; size?: number }, { hasError: boolean }> {
@@ -65,7 +67,9 @@ const Settings: React.FC<SettingsProps> = ({
   quoteSettings, onSetQuoteSettings,
   onBackup, onRestore,
   companyInfo, onSetCompanyInfo,
-  onSyncImport
+  onSyncImport,
+  syncRoomId,
+  onSetSyncRoomId
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const restoreInputRef = React.useRef<HTMLInputElement>(null);
@@ -108,7 +112,6 @@ const Settings: React.FC<SettingsProps> = ({
       const settingsStr = localStorage.getItem('quoteSettings') || 'null';
 
       const parsedProducts = JSON.parse(productsStr);
-      // Strip very large image base64 strings to keep QR code / URL compact
       const compactProducts = Array.isArray(parsedProducts)
         ? parsedProducts.map((p: any) => ({
             ...p,
@@ -117,6 +120,7 @@ const Settings: React.FC<SettingsProps> = ({
         : [];
 
       const payload = {
+        roomId: syncRoomId,
         clients: JSON.parse(clientsStr),
         products: compactProducts,
         savedQuotes: JSON.parse(quotesStr),
@@ -126,16 +130,17 @@ const Settings: React.FC<SettingsProps> = ({
 
       const jsonStr = JSON.stringify(payload);
       const encodedPayload = encodeUnicodeBase64(jsonStr);
-      return `${getCleanAppUrl()}#sync=${encodeURIComponent(encodedPayload)}`;
+      const currentRoom = syncRoomId || 'sala_default';
+      return `${getCleanAppUrl()}#room=${currentRoom}&sync=${encodeURIComponent(encodedPayload)}`;
     } catch (e) {
-      return getCleanAppUrl();
+      return `${getCleanAppUrl()}#room=${syncRoomId || 'sala_default'}`;
     }
   };
 
   const cleanAppUrl = getCleanAppUrl();
   const fullSyncUrl = getFullSyncUrl();
   // Ensure QR code value stays within safe length limits (< 1000 characters) to prevent RangeError: Data too long
-  const qrCodeValue = (fullSyncUrl && fullSyncUrl.length <= 1000) ? fullSyncUrl : cleanAppUrl;
+  const qrCodeValue = (fullSyncUrl && fullSyncUrl.length <= 1000) ? fullSyncUrl : `${cleanAppUrl}#room=${syncRoomId || 'sala_default'}`;
   const appSyncUrl = fullSyncUrl;
 
   const handleCopyLink = () => {
@@ -152,7 +157,7 @@ const Settings: React.FC<SettingsProps> = ({
   const [copiedFullSyncLink, setCopiedFullSyncLink] = useState(false);
   const [syncFeedback, setSyncFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
-  const handleSyncFromPastedInput = () => {
+  const handleSyncFromPastedInput = async () => {
     setSyncFeedback(null);
     const rawStr = pastedSyncInput.trim();
     if (!rawStr) {
@@ -162,26 +167,30 @@ const Settings: React.FC<SettingsProps> = ({
 
     setIsSyncingPasted(true);
 
-    setTimeout(() => {
+    try {
+      let extractedRoom = '';
+      if (rawStr.includes('room=')) {
+        extractedRoom = rawStr.split('room=')[1]?.split('&')[0]?.split('#')[0] || '';
+      }
+
+      let cleanStr = rawStr;
+      if (cleanStr.includes('#sync=')) {
+        cleanStr = cleanStr.split('#sync=')[1]?.split('&')[0] || '';
+      } else if (cleanStr.includes('?sync=')) {
+        cleanStr = cleanStr.split('?sync=')[1]?.split('&')[0] || '';
+      } else if (cleanStr.includes('?data=')) {
+        cleanStr = cleanStr.split('?data=')[1]?.split('&')[0] || '';
+      }
+
       try {
-        let cleanStr = rawStr;
+        cleanStr = decodeURIComponent(cleanStr);
+      } catch (e) {
+        // ignore
+      }
 
-        if (cleanStr.includes('#sync=')) {
-          cleanStr = cleanStr.split('#sync=')[1];
-        } else if (cleanStr.includes('?sync=')) {
-          cleanStr = cleanStr.split('?sync=')[1]?.split('&')[0];
-        } else if (cleanStr.includes('?data=')) {
-          cleanStr = cleanStr.split('?data=')[1]?.split('&')[0];
-        }
+      let payload: any = null;
 
-        try {
-          cleanStr = decodeURIComponent(cleanStr);
-        } catch (e) {
-          // ignore
-        }
-
-        let payload: any = null;
-
+      if (cleanStr && (cleanStr.startsWith('{') || cleanStr.length > 20)) {
         try {
           payload = JSON.parse(cleanStr);
         } catch (e1) {
@@ -189,68 +198,82 @@ const Settings: React.FC<SettingsProps> = ({
             const decodedJson = decodeUnicodeBase64(cleanStr);
             payload = JSON.parse(decodedJson);
           } catch (e2) {
-            if ((rawStr.startsWith('http://') || rawStr.startsWith('https://')) && !rawStr.includes('sync=')) {
-              setSyncFeedback({
-                type: 'error',
-                message: 'O link colado não contém os dados de sincronização (#sync=...). No aparelho de origem, clique em "Gerar Link com Todos os Dados" e cole o link gerado aqui.'
-              });
-              setIsSyncingPasted(false);
-              return;
-            }
-            throw new Error('Não foi possível identificar dados de sincronização válidos no link ou código colado.');
+            // Not a base64 json
           }
         }
+      }
 
-        if (payload && typeof payload === 'object') {
-          const counts = { clients: 0, products: 0, quotes: 0 };
+      if (extractedRoom && onSetSyncRoomId) {
+        onSetSyncRoomId(extractedRoom);
+      }
 
-          if (Array.isArray(payload.clients)) counts.clients = payload.clients.length;
-          if (Array.isArray(payload.products)) counts.products = payload.products.length;
-          if (Array.isArray(payload.savedQuotes)) counts.quotes = payload.savedQuotes.length;
-
-          if (onSyncImport) {
-            onSyncImport(payload);
-          } else {
-            if (Array.isArray(payload.clients)) safeSetItem('clients', JSON.stringify(payload.clients));
-            if (Array.isArray(payload.products)) safeSetItem('products', JSON.stringify(payload.products));
-            if (Array.isArray(payload.savedQuotes)) safeSetItem('savedQuotes', JSON.stringify(payload.savedQuotes));
-            if (payload.companyInfo) {
-              safeSetItem('companyInfo', JSON.stringify(payload.companyInfo));
-              onSetCompanyInfo(payload.companyInfo);
-            }
-            if (payload.quoteSettings) {
-              safeSetItem('quoteSettings', JSON.stringify(payload.quoteSettings));
-              onSetQuoteSettings(payload.quoteSettings);
+      // Try fetching from server room if payload is missing or empty
+      if (extractedRoom && (!payload || typeof payload !== 'object')) {
+        try {
+          const res = await fetch(`/api/sync/${encodeURIComponent(extractedRoom)}`);
+          if (res.ok) {
+            const serverData = await res.json();
+            if (serverData && (serverData.clients || serverData.products)) {
+              payload = serverData;
             }
           }
+        } catch (e) {
+          // ignore
+        }
+      }
 
-          if ('BroadcastChannel' in window) {
-            const channel = new BroadcastChannel('app_multi_device_sync');
-            channel.postMessage({
-              type: 'SYNC_DATA',
-              payload: payload
-            });
-            channel.close();
-          }
-          window.dispatchEvent(new Event('storage'));
+      if (payload && typeof payload === 'object') {
+        const counts = { clients: 0, products: 0, quotes: 0 };
 
-          setSyncFeedback({
-            type: 'success',
-            message: `✅ Sincronização concluída com sucesso! Importados e visíveis: ${counts.clients} clientes, ${counts.products} produtos e ${counts.quotes} orçamentos.`
-          });
-          setPastedSyncInput('');
+        if (Array.isArray(payload.clients)) counts.clients = payload.clients.length;
+        if (Array.isArray(payload.products)) counts.products = payload.products.length;
+        if (Array.isArray(payload.savedQuotes)) counts.quotes = payload.savedQuotes.length;
+
+        if (payload.roomId && onSetSyncRoomId) {
+          onSetSyncRoomId(payload.roomId);
+        }
+
+        if (onSyncImport) {
+          onSyncImport(payload);
         } else {
-          throw new Error('O formato dos dados importados é inválido.');
+          if (Array.isArray(payload.clients)) safeSetItem('clients', JSON.stringify(payload.clients));
+          if (Array.isArray(payload.products)) safeSetItem('products', JSON.stringify(payload.products));
+          if (Array.isArray(payload.savedQuotes)) safeSetItem('savedQuotes', JSON.stringify(payload.savedQuotes));
+          if (payload.companyInfo) {
+            safeSetItem('companyInfo', JSON.stringify(payload.companyInfo));
+            onSetCompanyInfo(payload.companyInfo);
+          }
+          if (payload.quoteSettings) {
+            safeSetItem('quoteSettings', JSON.stringify(payload.quoteSettings));
+            onSetQuoteSettings(payload.quoteSettings);
+          }
         }
-      } catch (err: any) {
+
+        setSyncFeedback({
+          type: 'success',
+          message: `✅ Sincronização em tempo real ativada! Dados atualizados: ${counts.clients} clientes, ${counts.products} produtos e ${counts.quotes} orçamentos.`
+        });
+        setPastedSyncInput('');
+      } else if (extractedRoom) {
+        setSyncFeedback({
+          type: 'success',
+          message: `✅ Conectado à sala de sincronização "${extractedRoom}". O dispositivo receberá novos produtos e clientes automaticamente.`
+        });
+        setPastedSyncInput('');
+      } else {
         setSyncFeedback({
           type: 'error',
-          message: err.message || 'Erro ao processar o link de sincronização.'
+          message: 'Não foi possível reconhecer o código ou link de sincronização. Cole o link gerado no outro dispositivo.'
         });
-      } finally {
-        setIsSyncingPasted(false);
       }
-    }, 200);
+    } catch (err) {
+      setSyncFeedback({
+        type: 'error',
+        message: 'Erro ao processar código de sincronização. Verifique o texto colado.'
+      });
+    } finally {
+      setIsSyncingPasted(false);
+    }
   };
 
   const handleGenerateAndCopyFullSyncLink = () => {
@@ -856,8 +879,24 @@ const Settings: React.FC<SettingsProps> = ({
                   <Wifi className="w-4 h-4 text-emerald-600 animate-pulse" /> Sincronização em Tempo Real Ativa
                 </h4>
                 <p className="text-xs text-slate-500 mt-1 leading-relaxed">
-                  Ao abrir esta URL em seu smartphone ou em outra janela, os dados de produtos, clientes e orçamentos serão sincronizados entre os dispositivos instantaneamente.
+                  Ao cadastrar, editar ou excluir produtos, clientes e orçamentos em qualquer dispositivo conectado a esta sala, as alterações são atualizadas automaticamente nos outros aparelhos.
                 </p>
+              </div>
+
+              <div className="bg-slate-100 p-3.5 rounded-xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-bold text-slate-800 block">ID da Sala em Nuvem:</span>
+                  <span className="text-xs text-slate-500">Dispositivos conectados ao mesmo ID compartilham novos clientes e produtos.</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={syncRoomId || ''}
+                    onChange={(e) => onSetSyncRoomId && onSetSyncRoomId(e.target.value)}
+                    placeholder="Ex: minha_empresa"
+                    className="text-xs bg-white border border-slate-300 rounded-lg px-3 py-1.5 font-mono text-slate-800 font-bold w-36 text-center focus:ring-2 focus:ring-[--color-primary-500] focus:outline-none"
+                  />
+                </div>
               </div>
 
               <div className="space-y-2">

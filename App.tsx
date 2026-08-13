@@ -58,8 +58,47 @@ const App: React.FC = () => {
   });
   const [quoteToEdit, setQuoteToEdit] = useState<SavedQuote | null>(null);
 
+  // --- Sync Room State ---
+  const [syncRoomId, setSyncRoomId] = useState<string>(() => {
+    const stored = localStorage.getItem('sync_room_id');
+    if (stored) return stored;
+    const initialRoom = 'sala_' + Math.random().toString(36).substring(2, 8);
+    localStorage.setItem('sync_room_id', initialRoom);
+    return initialRoom;
+  });
+
+  const lastServerUpdateRef = React.useRef<number>(0);
+  const isSelfUpdatingRef = React.useRef<boolean>(false);
+
+  const handleSetSyncRoomId = (newRoomId: string) => {
+    const cleanRoom = newRoomId.trim().toLowerCase();
+    if (cleanRoom) {
+      setSyncRoomId(cleanRoom);
+      localStorage.setItem('sync_room_id', cleanRoom);
+    }
+  };
+
   // --- Initialization Effect ---
   useEffect(() => {
+    // Check for room in URL
+    try {
+      const hash = window.location.hash;
+      const search = window.location.search;
+      let urlRoom = '';
+      if (hash.includes('room=')) {
+        urlRoom = hash.split('room=')[1]?.split('&')[0];
+      } else if (search.includes('room=')) {
+        urlRoom = search.split('room=')[1]?.split('&')[0];
+      }
+      if (urlRoom) {
+        const clean = urlRoom.trim().toLowerCase();
+        setSyncRoomId(clean);
+        localStorage.setItem('sync_room_id', clean);
+      }
+    } catch (e) {
+      console.warn('Erro ao ler room_id da URL:', e);
+    }
+
     // 1. Check Auth Setup
     const storedAuth = localStorage.getItem('auth_config');
     if (storedAuth) {
@@ -93,7 +132,6 @@ const App: React.FC = () => {
     const storedProducts = localStorage.getItem('products');
     if (storedProducts) {
        const parsedProducts = JSON.parse(storedProducts);
-       // Migration: ensure type exists
        const migratedProducts = parsedProducts.map((p: any) => ({
            ...p,
            type: p.type || 'product'
@@ -147,7 +185,7 @@ const App: React.FC = () => {
       let encodedData = '';
 
       if (hash.includes('sync=')) {
-        encodedData = hash.split('sync=')[1];
+        encodedData = hash.split('sync=')[1]?.split('&')[0];
       } else if (search.includes('sync=')) {
         encodedData = search.split('sync=')[1]?.split('&')[0];
       }
@@ -158,6 +196,10 @@ const App: React.FC = () => {
         const payload = JSON.parse(rawJson);
 
         if (payload && typeof payload === 'object') {
+          if (payload.roomId) {
+            setSyncRoomId(payload.roomId);
+            localStorage.setItem('sync_room_id', payload.roomId);
+          }
           if (Array.isArray(payload.clients)) {
             setClients(payload.clients);
             safeSetItem('clients', JSON.stringify(payload.clients));
@@ -184,7 +226,7 @@ const App: React.FC = () => {
 
           window.history.replaceState(null, '', window.location.pathname);
           setTimeout(() => {
-            alert('✅ Dispositivo sincronizado com sucesso a partir do link!');
+            alert('✅ Dispositivo sincronizado com sucesso!');
           }, 300);
         }
       }
@@ -197,6 +239,100 @@ const App: React.FC = () => {
     if (savedTab) setActiveTab(savedTab);
 
   }, []);
+
+  // --- Real-time Cloud Push Effect ---
+  useEffect(() => {
+    if (!syncRoomId) return;
+
+    const timer = setTimeout(async () => {
+      try {
+        if (isSelfUpdatingRef.current) {
+          isSelfUpdatingRef.current = false;
+          return;
+        }
+
+        const payload = {
+          clients,
+          products,
+          savedQuotes,
+          companyInfo,
+          quoteSettings,
+        };
+
+        const res = await fetch('/api/sync/update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ roomId: syncRoomId, data: payload }),
+        });
+
+        if (res.ok) {
+          const json = await res.json();
+          if (json.lastUpdated) {
+            lastServerUpdateRef.current = json.lastUpdated;
+          }
+        }
+      } catch (err) {
+        console.warn('Sync update push warning:', err);
+      }
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [clients, products, savedQuotes, companyInfo, quoteSettings, syncRoomId]);
+
+  // --- Real-time Cloud Poll Effect ---
+  useEffect(() => {
+    if (!syncRoomId) return;
+
+    const checkRemoteUpdates = async () => {
+      try {
+        const res = await fetch(`/api/sync/${encodeURIComponent(syncRoomId)}`);
+        if (!res.ok) return;
+        const data = await res.json();
+
+        if (data.lastUpdated && data.lastUpdated > lastServerUpdateRef.current) {
+          lastServerUpdateRef.current = data.lastUpdated;
+          isSelfUpdatingRef.current = true;
+
+          if (Array.isArray(data.clients)) {
+            setClients(data.clients);
+            safeSetItem('clients', JSON.stringify(data.clients));
+            saveToIndexedDB('clients', data.clients);
+          }
+          if (Array.isArray(data.products)) {
+            setProducts(data.products);
+            safeSetItem('products', JSON.stringify(data.products));
+            saveToIndexedDB('products', data.products);
+          }
+          if (Array.isArray(data.savedQuotes)) {
+            setSavedQuotes(data.savedQuotes);
+            safeSetItem('savedQuotes', JSON.stringify(data.savedQuotes));
+            saveToIndexedDB('savedQuotes', data.savedQuotes);
+          }
+          if (data.companyInfo) {
+            setCompanyInfo(data.companyInfo);
+            safeSetItem('companyInfo', JSON.stringify(data.companyInfo));
+          }
+          if (data.quoteSettings) {
+            setQuoteSettings(data.quoteSettings);
+            safeSetItem('quoteSettings', JSON.stringify(data.quoteSettings));
+          }
+        }
+      } catch (err) {
+        // Silent polling error handling
+      }
+    };
+
+    checkRemoteUpdates();
+    const interval = setInterval(checkRemoteUpdates, 2000);
+
+    const handleFocus = () => checkRemoteUpdates();
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', handleFocus);
+    };
+  }, [syncRoomId]);
 
   // Sync state changes with IndexedDB (Local Database)
   useEffect(() => {
@@ -546,6 +682,9 @@ const App: React.FC = () => {
   const handleSyncImport = (payload: any) => {
     if (!payload || typeof payload !== 'object') return;
 
+    if (payload.roomId) {
+      handleSetSyncRoomId(payload.roomId);
+    }
     if (Array.isArray(payload.clients)) {
       setClients(payload.clients);
       safeSetItem('clients', JSON.stringify(payload.clients));
@@ -613,6 +752,8 @@ const App: React.FC = () => {
                     companyInfo={companyInfo}
                     onSetCompanyInfo={handleSetCompanyInfo}
                     onSyncImport={handleSyncImport}
+                    syncRoomId={syncRoomId}
+                    onSetSyncRoomId={handleSetSyncRoomId}
                 />;
       default:
         return null;
