@@ -1,5 +1,7 @@
 
 import React, { useState, useRef } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
+import { QrCode, Copy, Check, Smartphone, Laptop, Wifi } from 'lucide-react';
 import { compressImage } from '../utils/storage';
 import { UploadIcon } from './icons/UploadIcon';
 import { TrashIcon } from './icons/TrashIcon';
@@ -42,6 +44,18 @@ const Settings: React.FC<SettingsProps> = ({
   // State for Credentials Change
   const [newUser, setNewUser] = useState('');
   const [newPass, setNewPass] = useState('');
+
+  // State for QR Sync
+  const [copiedLink, setCopiedLink] = useState(false);
+  const appSyncUrl = typeof window !== 'undefined' ? window.location.href : '';
+
+  const handleCopyLink = () => {
+    if (appSyncUrl) {
+      navigator.clipboard.writeText(appSyncUrl);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2500);
+    }
+  };
 
   React.useEffect(() => {
     if (companyInfo) {
@@ -579,6 +593,72 @@ const Settings: React.FC<SettingsProps> = ({
                     />
                 </div>
             </div>
+        </div>
+
+        <div className="pt-8 border-t border-slate-200">
+          <div className="flex items-center gap-3 mb-2">
+            <QrCode className="h-6 w-6 text-[--color-primary-600]" />
+            <h3 className="text-lg font-medium text-slate-800">Sincronização & QR Code Multi-Dispositivos</h3>
+          </div>
+          <p className="text-sm text-slate-500 mb-6">
+            Escaneie o QR Code abaixo com a câmera do seu celular, tablet ou outro computador para abrir o aplicativo e sincronizar o uso em múltiplos aparelhos em tempo real.
+          </p>
+
+          <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 flex flex-col md:flex-row items-center gap-8 shadow-sm">
+            <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-md flex flex-col items-center flex-shrink-0">
+              <QRCodeSVG
+                value={appSyncUrl || 'https://ais-pre-t47sjfsq7z5slmnbaj3ba5-2269761606.us-east5.run.app'}
+                size={180}
+                level="H"
+                includeMargin={true}
+              />
+              <span className="mt-2 text-xs font-semibold text-slate-500 flex items-center gap-1">
+                <Smartphone className="w-3.5 h-3.5 text-slate-400" /> Escaneie com a câmera do celular
+              </span>
+            </div>
+
+            <div className="flex-1 space-y-4">
+              <div>
+                <h4 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                  <Wifi className="w-4 h-4 text-emerald-600 animate-pulse" /> Sincronização em Tempo Real Ativa
+                </h4>
+                <p className="text-xs text-slate-500 mt-1 leading-relaxed">
+                  Ao abrir esta URL em seu smartphone ou em outra janela, os dados de produtos, clientes e orçamentos serão sincronizados entre os dispositivos instantaneamente.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-slate-600 uppercase tracking-wider block">
+                  Link Direto de Acesso Multi-Aparelho
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={appSyncUrl}
+                    className="flex-1 text-xs bg-white border border-slate-300 rounded-lg px-3 py-2 text-slate-600 font-mono focus:outline-none"
+                  />
+                  <button
+                    onClick={handleCopyLink}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-[--color-primary-600] text-white rounded-lg text-xs font-semibold hover:bg-[--color-primary-700] transition-colors shadow-sm flex-shrink-0"
+                  >
+                    {copiedLink ? <Check className="w-4 h-4 text-emerald-300" /> : <Copy className="w-4 h-4" />}
+                    {copiedLink ? 'Copiado!' : 'Copiar Link'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-4 text-xs text-slate-600 pt-2 border-t border-slate-200">
+                <span className="inline-flex items-center gap-1 font-medium bg-blue-50 text-blue-700 px-2.5 py-1 rounded-md border border-blue-200">
+                  <Laptop className="w-3.5 h-3.5" /> Computador / Notebook
+                </span>
+                <span className="text-slate-300">↔</span>
+                <span className="inline-flex items-center gap-1 font-medium bg-emerald-50 text-emerald-700 px-2.5 py-1 rounded-md border border-emerald-200">
+                  <Smartphone className="w-3.5 h-3.5" /> Celular / Tablet
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="pt-8">

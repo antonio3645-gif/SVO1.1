@@ -165,6 +165,39 @@ const App: React.FC = () => {
     }
   }, [savedQuotes]);
 
+  // BroadcastChannel & Storage Event Real-Time Cross-Window Sync
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'clients' && e.newValue) setClients(JSON.parse(e.newValue));
+      if (e.key === 'products' && e.newValue) setProducts(JSON.parse(e.newValue));
+      if (e.key === 'savedQuotes' && e.newValue) setSavedQuotes(JSON.parse(e.newValue));
+      if (e.key === 'companyInfo' && e.newValue) setCompanyInfo(JSON.parse(e.newValue));
+      if (e.key === 'quoteSettings' && e.newValue) setQuoteSettings(JSON.parse(e.newValue));
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    let channel: BroadcastChannel | null = null;
+    if ('BroadcastChannel' in window) {
+      channel = new BroadcastChannel('app_multi_device_sync');
+      channel.onmessage = (event) => {
+        if (event.data?.type === 'SYNC_DATA') {
+          const { clients, products, savedQuotes, companyInfo, quoteSettings } = event.data.payload || {};
+          if (clients) setClients(clients);
+          if (products) setProducts(products);
+          if (savedQuotes) setSavedQuotes(savedQuotes);
+          if (companyInfo) setCompanyInfo(companyInfo);
+          if (quoteSettings) setQuoteSettings(quoteSettings);
+        }
+      };
+    }
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      if (channel) channel.close();
+    };
+  }, []);
+
   // Apply Theme
   useEffect(() => {
     document.documentElement.className = `theme-${quoteSettings.theme} font-${quoteSettings.font}`;
