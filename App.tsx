@@ -11,7 +11,7 @@ import { UserPlusIcon } from './components/icons/UserPlusIcon';
 import { PackagePlusIcon } from './components/icons/PackagePlusIcon';
 import { PriceTagIcon } from './components/icons/PriceTagIcon';
 import { SettingsIcon } from './components/icons/SettingsIcon';
-import { safeSetItem, compressImage } from './utils/storage';
+import { safeSetItem, compressImage, decodeUnicodeBase64 } from './utils/storage';
 import { saveToIndexedDB, loadFromIndexedDB } from './utils/indexedDB';
 
 type Tab = 'clients' | 'products' | 'quotes' | 'settings';
@@ -140,6 +140,55 @@ const App: React.FC = () => {
       }
     })();
     
+    // Check if page was loaded with a #sync= or ?sync= link
+    try {
+      const hash = window.location.hash;
+      const search = window.location.search;
+      let encodedData = '';
+
+      if (hash.includes('sync=')) {
+        encodedData = hash.split('sync=')[1];
+      } else if (search.includes('sync=')) {
+        encodedData = search.split('sync=')[1]?.split('&')[0];
+      }
+
+      if (encodedData) {
+        const decodedUri = decodeURIComponent(encodedData);
+        const rawJson = decodeUnicodeBase64(decodedUri);
+        const payload = JSON.parse(rawJson);
+
+        if (payload && typeof payload === 'object') {
+          if (Array.isArray(payload.clients)) {
+            setClients(payload.clients);
+            safeSetItem('clients', JSON.stringify(payload.clients));
+          }
+          if (Array.isArray(payload.products)) {
+            setProducts(payload.products);
+            safeSetItem('products', JSON.stringify(payload.products));
+          }
+          if (Array.isArray(payload.savedQuotes)) {
+            setSavedQuotes(payload.savedQuotes);
+            safeSetItem('savedQuotes', JSON.stringify(payload.savedQuotes));
+          }
+          if (payload.companyInfo) {
+            setCompanyInfo(payload.companyInfo);
+            safeSetItem('companyInfo', JSON.stringify(payload.companyInfo));
+          }
+          if (payload.quoteSettings) {
+            setQuoteSettings(payload.quoteSettings);
+            safeSetItem('quoteSettings', JSON.stringify(payload.quoteSettings));
+          }
+
+          window.history.replaceState(null, '', window.location.pathname);
+          setTimeout(() => {
+            alert('✅ Dispositivo sincronizado com sucesso a partir do link!');
+          }, 300);
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao ler link de sincronização na inicialização:', e);
+    }
+
     // Tab persistence
     const savedTab = localStorage.getItem('activeTab') as Tab;
     if (savedTab) setActiveTab(savedTab);

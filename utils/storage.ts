@@ -145,3 +145,25 @@ export function safeSetItem(key: string, value: string): boolean {
     return false;
   }
 }
+
+/**
+ * Encodes a UTF-8 string (including accents and special characters) into Base64 safely
+ */
+export function encodeUnicodeBase64(str: string): string {
+  return btoa(
+    encodeURIComponent(str).replace(/%([0-9A-F]{2})/g, (match, p1) =>
+      String.fromCharCode(parseInt(p1, 16))
+    )
+  );
+}
+
+/**
+ * Decodes a Base64 string back into a UTF-8 string with proper accent preservation
+ */
+export function decodeUnicodeBase64(str: string): string {
+  return decodeURIComponent(
+    Array.prototype.map
+      .call(atob(str), (c: string) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+      .join('')
+  );
+}
