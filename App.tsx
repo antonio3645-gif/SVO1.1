@@ -12,6 +12,7 @@ import { PackagePlusIcon } from './components/icons/PackagePlusIcon';
 import { PriceTagIcon } from './components/icons/PriceTagIcon';
 import { SettingsIcon } from './components/icons/SettingsIcon';
 import { safeSetItem, compressImage } from './utils/storage';
+import { saveToIndexedDB, loadFromIndexedDB } from './utils/indexedDB';
 
 type Tab = 'clients' | 'products' | 'quotes' | 'settings';
 
@@ -119,11 +120,50 @@ const App: React.FC = () => {
     const storedCompanyInfo = localStorage.getItem('companyInfo');
     if (storedCompanyInfo) setCompanyInfo(JSON.parse(storedCompanyInfo));
     
+    // Secondary fallback load from IndexedDB if localStorage was empty
+    (async () => {
+      try {
+        if (!storedClients) {
+          const idbClients = await loadFromIndexedDB<Client>('clients');
+          if (idbClients.length > 0) setClients(idbClients);
+        }
+        if (!storedProducts) {
+          const idbProducts = await loadFromIndexedDB<Product>('products');
+          if (idbProducts.length > 0) setProducts(idbProducts);
+        }
+        if (!storedQuotes) {
+          const idbQuotes = await loadFromIndexedDB<SavedQuote>('savedQuotes');
+          if (idbQuotes.length > 0) setSavedQuotes(idbQuotes);
+        }
+      } catch (err) {
+        console.warn('Erro ao carregar dados do IndexedDB:', err);
+      }
+    })();
+    
     // Tab persistence
     const savedTab = localStorage.getItem('activeTab') as Tab;
     if (savedTab) setActiveTab(savedTab);
 
   }, []);
+
+  // Sync state changes with IndexedDB (Local Database)
+  useEffect(() => {
+    if (clients.length > 0) {
+      saveToIndexedDB('clients', clients);
+    }
+  }, [clients]);
+
+  useEffect(() => {
+    if (products.length > 0) {
+      saveToIndexedDB('products', products);
+    }
+  }, [products]);
+
+  useEffect(() => {
+    if (savedQuotes.length > 0) {
+      saveToIndexedDB('savedQuotes', savedQuotes);
+    }
+  }, [savedQuotes]);
 
   // Apply Theme
   useEffect(() => {
@@ -582,10 +622,16 @@ const App: React.FC = () => {
         <header className="bg-white shadow-sm sticky top-0 z-20">
             <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 py-2 sm:py-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
-                    {/* Título visível apenas em telas maiores para economizar espaço no mobile */}
-                    <h1 className="hidden sm:block text-2xl font-bold text-slate-900">
-                        Gerenciador
-                    </h1>
+                    {/* Título e Badge de Banco de Dados Local Offline */}
+                    <div className="hidden sm:flex items-center gap-3">
+                      <h1 className="text-2xl font-bold text-slate-900">
+                          Gerenciador
+                      </h1>
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Todos os dados são salvos localmente no seu dispositivo e funcionam offline sem internet.">
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                        Banco Local (Offline)
+                      </span>
+                    </div>
                     
                     <div className="flex items-center gap-2 w-full sm:w-auto">
                         <nav className="flex-grow sm:flex-grow-0 flex items-center justify-between sm:justify-end gap-1 sm:gap-2 bg-slate-100 p-1 rounded-xl">
