@@ -25,6 +25,41 @@ interface SettingsProps {
   onSyncImport?: (payload: any) => void;
 }
 
+class SafeQRCode extends React.Component<{ value: string; fallbackValue: string; size?: number }, { hasError: boolean }> {
+  constructor(props: { value: string; fallbackValue: string; size?: number }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: any) {
+    console.warn('QRCodeSVG error caught safely:', error);
+  }
+
+  componentDidUpdate(prevProps: { value: string }) {
+    if (prevProps.value !== this.props.value && this.state.hasError) {
+      this.setState({ hasError: false });
+    }
+  }
+
+  render() {
+    const size = this.props.size || 180;
+    const valueToRender = this.state.hasError ? this.props.fallbackValue : this.props.value;
+
+    return (
+      <QRCodeSVG
+        value={valueToRender || 'https://ais-pre-t47sjfsq7z5slmnbaj3ba5-2269761606.us-east5.run.app'}
+        size={size}
+        level="L"
+        includeMargin={true}
+      />
+    );
+  }
+}
+
 const Settings: React.FC<SettingsProps> = ({ 
   logo, onSetLogo, onDeleteLogo, 
   quoteSettings, onSetQuoteSettings,
@@ -97,7 +132,11 @@ const Settings: React.FC<SettingsProps> = ({
     }
   };
 
-  const appSyncUrl = getFullSyncUrl();
+  const cleanAppUrl = getCleanAppUrl();
+  const fullSyncUrl = getFullSyncUrl();
+  // Ensure QR code value stays within safe length limits (< 1000 characters) to prevent RangeError: Data too long
+  const qrCodeValue = (fullSyncUrl && fullSyncUrl.length <= 1000) ? fullSyncUrl : cleanAppUrl;
+  const appSyncUrl = fullSyncUrl;
 
   const handleCopyLink = () => {
     if (appSyncUrl) {
@@ -792,11 +831,10 @@ const Settings: React.FC<SettingsProps> = ({
 
           <div className="bg-slate-50 p-6 rounded-2xl border border-slate-200 flex flex-col md:flex-row items-center gap-8 shadow-sm">
             <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-md flex flex-col items-center flex-shrink-0 w-full md:w-auto">
-              <QRCodeSVG
-                value={appSyncUrl || 'https://ais-pre-t47sjfsq7z5slmnbaj3ba5-2269761606.us-east5.run.app'}
+              <SafeQRCode
+                value={qrCodeValue}
+                fallbackValue={cleanAppUrl}
                 size={180}
-                level="H"
-                includeMargin={true}
               />
               <span className="mt-2 text-xs font-semibold text-slate-500 flex items-center gap-1">
                 <Smartphone className="w-3.5 h-3.5 text-slate-400" /> Escaneie com a câmera do celular
