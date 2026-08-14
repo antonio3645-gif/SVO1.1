@@ -1,0 +1,16 @@
+{
+  "entities": {
+    "sync_rooms": {
+      "description": "Real-time sync rooms for multi-device data synchronization",
+      "fields": {
+        "roomId": { "type": "string", "description": "Unique room ID" },
+        "clients": { "type": "array", "description": "List of clients" },
+        "products": { "type": "array", "description": "List of products" },
+        "savedQuotes": { "type": "array", "description": "List of saved quotes" },
+        "companyInfo": { "type": "object", "description": "Company info" },
+        "quoteSettings": { "type": "object", "description": "Quote formatting and numbering settings" },
+        "updatedAt": { "type": "timestamp", "description": "Last update timestamp" }
+      }
+    }
+  }
+}

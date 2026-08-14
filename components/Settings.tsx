@@ -11,6 +11,7 @@ import { BuildingIcon } from './icons/BuildingIcon';
 import { PaletteIcon } from './icons/PaletteIcon';
 import { LockIcon } from './icons/LockIcon';
 import type { QuoteSettings, CompanyInfo } from '../types';
+import { db, doc, getDoc, ensureAuth } from '../firebase';
 
 interface SettingsProps {
   logo: string | null;
@@ -236,18 +237,32 @@ const Settings: React.FC<SettingsProps> = ({
         onSetSyncRoomId(extractedRoom);
       }
 
-      // Try fetching from server room if payload is missing or empty
+      // Try fetching from Firestore first, then fallback to server
       if (extractedRoom && (!payload || typeof payload !== 'object')) {
         try {
-          const res = await fetch(`/api/sync/${encodeURIComponent(extractedRoom)}`);
-          if (res.ok) {
-            const serverData = await res.json();
-            if (serverData && (serverData.clients || serverData.products)) {
-              payload = serverData;
+          await ensureAuth();
+          if (db) {
+            const snap = await getDoc(doc(db, 'sync_rooms', extractedRoom));
+            if (snap.exists()) {
+              payload = snap.data();
             }
           }
         } catch (e) {
-          // ignore
+          console.warn('Firestore fetch in settings warning:', e);
+        }
+
+        if (!payload || typeof payload !== 'object') {
+          try {
+            const res = await fetch(`/api/sync/${encodeURIComponent(extractedRoom)}`);
+            if (res.ok) {
+              const serverData = await res.json();
+              if (serverData && (serverData.clients || serverData.products)) {
+                payload = serverData;
+              }
+            }
+          } catch (e) {
+            // ignore
+          }
         }
       }
 
