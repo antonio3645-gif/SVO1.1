@@ -11,7 +11,7 @@ import { UserPlusIcon } from './components/icons/UserPlusIcon';
 import { PackagePlusIcon } from './components/icons/PackagePlusIcon';
 import { PriceTagIcon } from './components/icons/PriceTagIcon';
 import { SettingsIcon } from './components/icons/SettingsIcon';
-import { safeSetItem, compressImage, decodeUnicodeBase64 } from './utils/storage';
+import { safeSetItem, compressImage, decodeUnicodeBase64, sanitizeDataForFirestore } from './utils/storage';
 import { saveToIndexedDB, loadFromIndexedDB } from './utils/indexedDB';
 import { db, doc, setDoc, getDoc, onSnapshot, ensureAuth } from './firebase';
 
@@ -61,23 +61,94 @@ const App: React.FC = () => {
 
   // --- Sync Room State ---
   const [syncRoomId, setSyncRoomId] = useState<string>(() => {
+    // 1. Check URL first
+    try {
+      const hash = window.location.hash;
+      const search = window.location.search;
+      let urlRoom = '';
+      if (hash.includes('room=')) {
+        urlRoom = hash.split('room=')[1]?.split('&')[0]?.split('#')[0];
+      } else if (search.includes('room=')) {
+        urlRoom = search.split('room=')[1]?.split('&')[0]?.split('#')[0];
+      }
+      if (urlRoom && urlRoom.trim()) {
+        const clean = urlRoom.trim().toLowerCase();
+        localStorage.setItem('sync_room_id', clean);
+        return clean;
+      }
+    } catch (e) {}
+
+    // 2. Check localStorage
     const stored = localStorage.getItem('sync_room_id');
-    if (stored) return stored;
-    const initialRoom = 'sala_' + Math.random().toString(36).substring(2, 8);
-    localStorage.setItem('sync_room_id', initialRoom);
-    return initialRoom;
+    if (stored && stored.trim()) {
+      return stored.trim().toLowerCase();
+    }
+
+    // 3. Default shared room so all devices connected out of the box share the same data!
+    const defaultRoom = 'empresa_principal';
+    localStorage.setItem('sync_room_id', defaultRoom);
+    return defaultRoom;
   });
 
   const lastServerUpdateRef = React.useRef<number>(0);
   const isSelfUpdatingRef = React.useRef<boolean>(false);
+  const isInitialSyncCompleteRef = React.useRef<boolean>(false);
 
   const handleSetSyncRoomId = (newRoomId: string) => {
     const cleanRoom = newRoomId.trim().toLowerCase();
     if (cleanRoom) {
       setSyncRoomId(cleanRoom);
       localStorage.setItem('sync_room_id', cleanRoom);
+      isInitialSyncCompleteRef.current = false;
+      lastServerUpdateRef.current = 0;
     }
   };
+
+  // --- Real-time Instant Cloud Push Function ---
+  const pushToCloud = React.useCallback(async (
+    customClients = clients,
+    customProducts = products,
+    customSavedQuotes = savedQuotes,
+    customCompanyInfo = companyInfo,
+    customQuoteSettings = quoteSettings,
+    targetRoom = syncRoomId
+  ) => {
+    if (!targetRoom) return;
+
+    const now = Date.now();
+    lastServerUpdateRef.current = now;
+
+    const rawPayload = {
+      roomId: targetRoom,
+      clients: customClients,
+      products: customProducts,
+      savedQuotes: customSavedQuotes,
+      companyInfo: customCompanyInfo,
+      quoteSettings: customQuoteSettings,
+      lastUpdated: now,
+    };
+
+    const cleanPayload = sanitizeDataForFirestore(rawPayload);
+
+    // 1. Direct push to Firestore
+    try {
+      if (db) {
+        const roomDocRef = doc(db, 'sync_rooms', targetRoom);
+        await setDoc(roomDocRef, cleanPayload, { merge: true });
+      }
+    } catch (fbErr) {
+      console.warn('[Sync] Erro no Firestore setDoc:', fbErr);
+    }
+
+    // 2. Fallback push to Server API
+    try {
+      fetch('/api/sync/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ roomId: targetRoom, data: cleanPayload }),
+      }).catch(() => {});
+    } catch (e) {}
+  }, [clients, products, savedQuotes, companyInfo, quoteSettings, syncRoomId]);
 
   // --- Initialization Effect ---
   useEffect(() => {
@@ -87,11 +158,11 @@ const App: React.FC = () => {
       const search = window.location.search;
       let urlRoom = '';
       if (hash.includes('room=')) {
-        urlRoom = hash.split('room=')[1]?.split('&')[0];
+        urlRoom = hash.split('room=')[1]?.split('&')[0]?.split('#')[0];
       } else if (search.includes('room=')) {
-        urlRoom = search.split('room=')[1]?.split('&')[0];
+        urlRoom = search.split('room=')[1]?.split('&')[0]?.split('#')[0];
       }
-      if (urlRoom) {
+      if (urlRoom && urlRoom.trim()) {
         const clean = urlRoom.trim().toLowerCase();
         setSyncRoomId(clean);
         localStorage.setItem('sync_room_id', clean);
@@ -241,58 +312,26 @@ const App: React.FC = () => {
 
   }, []);
 
-  // --- Real-time Cloud Push Effect (Firestore + Server Fallback) ---
+  // --- Real-time Cloud Push Effect (Debounced backup) ---
   useEffect(() => {
     if (!syncRoomId) return;
 
-    const timer = setTimeout(async () => {
-      try {
-        if (isSelfUpdatingRef.current) {
-          isSelfUpdatingRef.current = false;
-          return;
-        }
-
-        const now = Date.now();
-        lastServerUpdateRef.current = now;
-
-        const payload = {
-          roomId: syncRoomId,
-          clients,
-          products,
-          savedQuotes,
-          companyInfo,
-          quoteSettings,
-          lastUpdated: now,
-        };
-
-        // 1. Push to Firebase Firestore (Global Cloud Database)
-        try {
-          await ensureAuth();
-          if (db) {
-            const roomDocRef = doc(db, 'sync_rooms', syncRoomId);
-            await setDoc(roomDocRef, payload, { merge: true });
-          }
-        } catch (fbErr) {
-          console.warn('Firestore sync push warning:', fbErr);
-        }
-
-        // 2. Fallback to Node server
-        try {
-          await fetch('/api/sync/update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ roomId: syncRoomId, data: payload }),
-          });
-        } catch (serverErr) {
-          // ignore
-        }
-      } catch (err) {
-        console.warn('Sync update push warning:', err);
+    const timer = setTimeout(() => {
+      if (isSelfUpdatingRef.current) {
+        isSelfUpdatingRef.current = false;
+        return;
       }
-    }, 400);
+
+      // If initial cloud sync has not completed and local data is blank, don't overwrite remote
+      if (!isInitialSyncCompleteRef.current && clients.length === 0 && products.length === 0 && savedQuotes.length === 0) {
+        return;
+      }
+
+      pushToCloud(clients, products, savedQuotes, companyInfo, quoteSettings, syncRoomId);
+    }, 200);
 
     return () => clearTimeout(timer);
-  }, [clients, products, savedQuotes, companyInfo, quoteSettings, syncRoomId]);
+  }, [clients, products, savedQuotes, companyInfo, quoteSettings, syncRoomId, pushToCloud]);
 
   // --- Real-time Cloud Listener (Firestore onSnapshot + API polling fallback) ---
   useEffect(() => {
@@ -302,19 +341,28 @@ const App: React.FC = () => {
 
     const setupFirestoreListener = async () => {
       try {
-        await ensureAuth();
         if (!db) return;
 
         const roomDocRef = doc(db, 'sync_rooms', syncRoomId);
         unsubscribeSnapshot = onSnapshot(roomDocRef, (snapshot) => {
-          if (!snapshot.exists()) return;
+          if (!snapshot.exists()) {
+            if (!isInitialSyncCompleteRef.current) {
+              isInitialSyncCompleteRef.current = true;
+              if (clients.length > 0 || products.length > 0 || savedQuotes.length > 0) {
+                pushToCloud(clients, products, savedQuotes, companyInfo, quoteSettings, syncRoomId);
+              }
+            }
+            return;
+          }
+
           const data = snapshot.data();
           if (!data) return;
 
           const remoteUpdated = data.lastUpdated || 0;
-          if (remoteUpdated > lastServerUpdateRef.current) {
-            lastServerUpdateRef.current = remoteUpdated;
+          if (remoteUpdated > lastServerUpdateRef.current || !isInitialSyncCompleteRef.current) {
+            lastServerUpdateRef.current = remoteUpdated || Date.now();
             isSelfUpdatingRef.current = true;
+            isInitialSyncCompleteRef.current = true;
 
             if (Array.isArray(data.clients)) {
               setClients(data.clients);
@@ -353,13 +401,14 @@ const App: React.FC = () => {
     // Fallback polling for server API
     const checkRemoteUpdates = async () => {
       try {
-        const res = await fetch(`/api/sync/${encodeURIComponent(syncRoomId)}`);
+        const res = await fetch(`/api/sync/${encodeURIComponent(syncRoomId)}?cb=${Date.now()}`);
         if (!res.ok) return;
         const data = await res.json();
 
-        if (data.lastUpdated && data.lastUpdated > lastServerUpdateRef.current) {
+        if (data.lastUpdated && (data.lastUpdated > lastServerUpdateRef.current || !isInitialSyncCompleteRef.current)) {
           lastServerUpdateRef.current = data.lastUpdated;
           isSelfUpdatingRef.current = true;
+          isInitialSyncCompleteRef.current = true;
 
           if (Array.isArray(data.clients)) {
             setClients(data.clients);
@@ -385,9 +434,7 @@ const App: React.FC = () => {
             safeSetItem('quoteSettings', JSON.stringify(data.quoteSettings));
           }
         }
-      } catch (err) {
-        // Silent polling error handling
-      }
+      } catch (err) {}
     };
 
     const interval = setInterval(checkRemoteUpdates, 3000);
@@ -399,7 +446,7 @@ const App: React.FC = () => {
       clearInterval(interval);
       window.removeEventListener('focus', handleFocus);
     };
-  }, [syncRoomId]);
+  }, [syncRoomId, pushToCloud]);
 
   // Sync state changes with IndexedDB (Local Database)
   useEffect(() => {
@@ -531,12 +578,16 @@ const App: React.FC = () => {
     const updatedClients = [...clients, newClient];
     setClients(updatedClients);
     safeSetItem('clients', JSON.stringify(updatedClients));
+    saveToIndexedDB('clients', updatedClients);
+    pushToCloud(updatedClients, products, savedQuotes, companyInfo, quoteSettings);
   };
 
   const updateClient = (updatedClient: Client) => {
     const updatedClients = clients.map((c) => (c.id === updatedClient.id ? updatedClient : c));
     setClients(updatedClients);
     safeSetItem('clients', JSON.stringify(updatedClients));
+    saveToIndexedDB('clients', updatedClients);
+    pushToCloud(updatedClients, products, savedQuotes, companyInfo, quoteSettings);
   };
 
   const deleteClient = (id: string) => {
@@ -545,6 +596,8 @@ const App: React.FC = () => {
       const updatedClients = clients.filter((c) => c.id !== id);
       setClients(updatedClients);
       safeSetItem('clients', JSON.stringify(updatedClients));
+      saveToIndexedDB('clients', updatedClients);
+      pushToCloud(updatedClients, products, savedQuotes, companyInfo, quoteSettings);
     }
   };
 
@@ -553,6 +606,8 @@ const App: React.FC = () => {
     const updatedProducts = [...products, newProduct];
     setProducts(updatedProducts);
     safeSetItem('products', JSON.stringify(updatedProducts));
+    saveToIndexedDB('products', updatedProducts);
+    pushToCloud(clients, updatedProducts, savedQuotes, companyInfo, quoteSettings);
   };
 
   const addMultipleProducts = (newProducts: Omit<Product, 'id'>[]) => {
@@ -560,18 +615,24 @@ const App: React.FC = () => {
       const updatedProducts = [...products, ...productsWithIds];
       setProducts(updatedProducts);
       safeSetItem('products', JSON.stringify(updatedProducts));
+      saveToIndexedDB('products', updatedProducts);
+      pushToCloud(clients, updatedProducts, savedQuotes, companyInfo, quoteSettings);
   };
 
   const updateProduct = (updatedProduct: Product) => {
     const updatedProducts = products.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
     setProducts(updatedProducts);
     safeSetItem('products', JSON.stringify(updatedProducts));
+    saveToIndexedDB('products', updatedProducts);
+    pushToCloud(clients, updatedProducts, savedQuotes, companyInfo, quoteSettings);
   };
 
   const deleteProduct = (id: string) => {
     const updatedProducts = products.filter((p) => p.id !== id);
     setProducts(updatedProducts);
     safeSetItem('products', JSON.stringify(updatedProducts));
+    saveToIndexedDB('products', updatedProducts);
+    pushToCloud(clients, updatedProducts, savedQuotes, companyInfo, quoteSettings);
   };
 
   const saveQuote = (quoteData: Omit<SavedQuote, 'id'>) => {
@@ -597,6 +658,7 @@ const App: React.FC = () => {
     });
     setProducts(updatedProducts);
     safeSetItem('products', JSON.stringify(updatedProducts));
+    saveToIndexedDB('products', updatedProducts);
 
     // Determine quote number
     let assignedNumber = quoteData.number;
@@ -614,13 +676,13 @@ const App: React.FC = () => {
       ...i,
       product: {
         ...i.product,
-        image: i.product.image && i.product.image.length > 50000 ? undefined : i.product.image
+        image: i.product.image && i.product.image.length > 50000 ? null : (i.product.image || null)
       }
     }));
 
     const newQuote: SavedQuote = { 
         ...quoteData, 
-        items: sanitizedItems,
+        items: sanitizedItems as any,
         number: assignedNumber,
         id: crypto.randomUUID(),
         createdAt: quoteData.createdAt || new Date().toISOString() 
@@ -628,6 +690,8 @@ const App: React.FC = () => {
     const updatedQuotes = [...savedQuotes, newQuote];
     setSavedQuotes(updatedQuotes);
     safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
+    saveToIndexedDB('savedQuotes', updatedQuotes);
+    pushToCloud(clients, updatedProducts, updatedQuotes, companyInfo, currentSettings);
     alert('Orçamento salvo com sucesso!');
   };
 
@@ -636,6 +700,8 @@ const App: React.FC = () => {
         const updatedQuotes = savedQuotes.filter((q) => q.id !== id);
         setSavedQuotes(updatedQuotes);
         safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
+        saveToIndexedDB('savedQuotes', updatedQuotes);
+        pushToCloud(clients, products, updatedQuotes, companyInfo, quoteSettings);
     }
   };
 
@@ -647,6 +713,8 @@ const App: React.FC = () => {
             const updatedQuotes = savedQuotes.filter(q => q.id !== quoteId);
             setSavedQuotes(updatedQuotes);
             safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
+            saveToIndexedDB('savedQuotes', updatedQuotes);
+            pushToCloud(clients, products, updatedQuotes, companyInfo, quoteSettings);
         }
       }
   };
@@ -665,11 +733,13 @@ const App: React.FC = () => {
   const handleSetQuoteSettings = (settings: QuoteSettings) => {
     setQuoteSettings(settings);
     safeSetItem('quoteSettings', JSON.stringify(settings));
+    pushToCloud(clients, products, savedQuotes, companyInfo, settings);
   };
 
   const handleSetCompanyInfo = (info: CompanyInfo) => {
     setCompanyInfo(info);
     safeSetItem('companyInfo', JSON.stringify(info));
+    pushToCloud(clients, products, savedQuotes, info, quoteSettings);
   };
 
   const handleBackup = () => {

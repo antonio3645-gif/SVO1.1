@@ -177,3 +177,19 @@ export function decodeUnicodeBase64(str: string): string {
     return '';
   }
 }
+
+/**
+ * Safely cleans data objects for Firestore:
+ * - Removes undefined values (which Firestore rejects)
+ * - Converts undefined to null or omits them
+ */
+export function sanitizeDataForFirestore<T>(data: T): T {
+  if (data === undefined) return null as any;
+  return JSON.parse(
+    JSON.stringify(data, (_key, value) => {
+      if (value === undefined) return null;
+      return value;
+    })
+  );
+}
+

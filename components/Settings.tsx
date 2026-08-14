@@ -141,10 +141,12 @@ const Settings: React.FC<SettingsProps> = ({
   };
 
   const cleanAppUrl = getCleanAppUrl();
+  const currentRoom = syncRoomId || 'empresa_principal';
+  const directRoomUrl = `${cleanAppUrl}#room=${currentRoom}`;
   const fullSyncUrl = getFullSyncUrl();
-  // Ensure QR code value stays within safe length limits (< 1000 characters) to prevent RangeError: Data too long
-  const qrCodeValue = (fullSyncUrl && fullSyncUrl.length <= 1000) ? fullSyncUrl : `${cleanAppUrl}#room=${syncRoomId || 'sala_default'}`;
-  const appSyncUrl = fullSyncUrl;
+  // Use direct room URL for QR Code and direct link (ultra-clean, instant Firestore sync across mobile & desktop)
+  const qrCodeValue = directRoomUrl;
+  const appSyncUrl = directRoomUrl;
 
   const handleCopyLink = () => {
     if (appSyncUrl) {
