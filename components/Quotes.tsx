@@ -327,14 +327,10 @@ const Quotes: React.FC<QuotesProps> = ({
   const handleApagar = () => {
     if (currentSavedQuoteIndex >= 0 && savedQuotes[currentSavedQuoteIndex]) {
       const targetQuote = savedQuotes[currentSavedQuoteIndex];
-      if (window.confirm(`Tem certeza que deseja excluir o orçamento Nº ${String(targetQuote.number || 1).padStart(4, '0')}?`)) {
-        deleteQuote(targetQuote.id);
-        handleIncluir();
-      }
+      deleteQuote(targetQuote.id);
+      handleIncluir();
     } else if (quoteItems.length > 0 || selectedClientId) {
-      if (window.confirm("Deseja apagar as informações do orçamento atual?")) {
-        handleIncluir();
-      }
+      handleIncluir();
     }
   };
 
@@ -343,11 +339,7 @@ const Quotes: React.FC<QuotesProps> = ({
   };
 
   const clearQuoteForm = () => {
-    if (quoteItems.length > 0 || selectedClientId || notes !== (quoteSettings.defaultNotes || '')) {
-      if (window.confirm('Tem certeza que deseja limpar o orçamento atual? Todas as informações não salvas serão perdidas.')) {
-        handleIncluir();
-      }
-    }
+    handleIncluir();
   };
 
   const saveCurrentQuote = (): SavedQuote | null => {
@@ -1341,9 +1333,14 @@ const Quotes: React.FC<QuotesProps> = ({
                         </button>
 
                         <button 
-                          onClick={() => deleteQuote(quote.id)} 
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.preventDefault();
+                            deleteQuote(quote.id);
+                          }} 
                           className="p-1.5 text-red-600 hover:text-red-800 bg-red-50 border border-red-200 rounded-md hover:bg-red-100 transition-colors cursor-pointer" 
-                          title="Excluir"
+                          title="Excluir Orçamento"
                         >
                           <TrashIcon className="h-4 w-4" />
                         </button>
@@ -1406,7 +1403,16 @@ const Quotes: React.FC<QuotesProps> = ({
                               >
                                 <PencilIcon className="h-5 w-5" />
                               </button>
-                              <button onClick={() => deleteQuote(quote.id)} className="p-1 text-[--color-destructive-600] hover:text-[--color-destructive-800] transition-colors cursor-pointer" title="Excluir">
+                              <button 
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  e.preventDefault();
+                                  deleteQuote(quote.id);
+                                }} 
+                                className="p-1 text-red-600 hover:text-red-800 hover:bg-red-50 rounded transition-colors cursor-pointer" 
+                                title="Excluir Orçamento"
+                              >
                                 <TrashIcon className="h-5 w-5" />
                               </button>
                             </div>

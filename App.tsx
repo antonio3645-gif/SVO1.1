@@ -591,14 +591,11 @@ const App: React.FC = () => {
   };
 
   const deleteClient = (id: string) => {
-    const clientToDelete = clients.find(c => c.id === id);
-    if (clientToDelete && window.confirm(`Tem certeza que deseja excluir o cliente "${clientToDelete.name}"?`)) {
-      const updatedClients = clients.filter((c) => c.id !== id);
-      setClients(updatedClients);
-      safeSetItem('clients', JSON.stringify(updatedClients));
-      saveToIndexedDB('clients', updatedClients);
-      pushToCloud(updatedClients, products, savedQuotes, companyInfo, quoteSettings);
-    }
+    const updatedClients = clients.filter((c) => c.id !== id);
+    setClients(updatedClients);
+    safeSetItem('clients', JSON.stringify(updatedClients));
+    saveToIndexedDB('clients', updatedClients);
+    pushToCloud(updatedClients, products, savedQuotes, companyInfo, quoteSettings);
   };
 
   const addProduct = (product: Omit<Product, 'id'>) => {
@@ -696,27 +693,26 @@ const App: React.FC = () => {
   };
 
   const deleteQuote = (id: string) => {
-    if(window.confirm('Tem certeza que deseja excluir este orçamento?')) {
-        const updatedQuotes = savedQuotes.filter((q) => q.id !== id);
-        setSavedQuotes(updatedQuotes);
-        safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
-        saveToIndexedDB('savedQuotes', updatedQuotes);
-        pushToCloud(clients, products, updatedQuotes, companyInfo, quoteSettings);
+    const updatedQuotes = savedQuotes.filter((q) => q.id !== id);
+    setSavedQuotes(updatedQuotes);
+    safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
+    saveToIndexedDB('savedQuotes', updatedQuotes);
+    pushToCloud(clients, products, updatedQuotes, companyInfo, quoteSettings);
+    if (quoteToEdit && quoteToEdit.id === id) {
+      setQuoteToEdit(null);
     }
   };
 
   const handleEditQuote = (quoteId: string) => {
-      if (window.confirm("Editar este orçamento irá removê-lo da lista e carregar seus dados. O estoque NÃO é devolvido automaticamente. Continuar?")) {
-        const quote = savedQuotes.find(q => q.id === quoteId);
-        if (quote) {
-            setQuoteToEdit(quote);
-            const updatedQuotes = savedQuotes.filter(q => q.id !== quoteId);
-            setSavedQuotes(updatedQuotes);
-            safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
-            saveToIndexedDB('savedQuotes', updatedQuotes);
-            pushToCloud(clients, products, updatedQuotes, companyInfo, quoteSettings);
-        }
-      }
+    const quote = savedQuotes.find(q => q.id === quoteId);
+    if (quote) {
+      setQuoteToEdit(quote);
+      const updatedQuotes = savedQuotes.filter(q => q.id !== quoteId);
+      setSavedQuotes(updatedQuotes);
+      safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
+      saveToIndexedDB('savedQuotes', updatedQuotes);
+      pushToCloud(clients, products, updatedQuotes, companyInfo, quoteSettings);
+    }
   };
 
   const handleSetLogo = async (logoDataUrl: string) => {
