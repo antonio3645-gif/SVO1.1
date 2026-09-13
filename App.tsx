@@ -14,6 +14,21 @@ import { SettingsIcon } from './components/icons/SettingsIcon';
 import { safeSetItem, compressImage, decodeUnicodeBase64, sanitizeDataForFirestore } from './utils/storage';
 import { saveToIndexedDB, loadFromIndexedDB } from './utils/indexedDB';
 import { db, doc, setDoc, getDoc, onSnapshot, ensureAuth } from './firebase';
+import { 
+  initGoogleAuth, 
+  signInWithGoogle, 
+  logoutGoogle, 
+  getGoogleAccessToken,
+  setCachedGoogleAccessToken 
+} from './googleAuth';
+import { 
+  appendProductsToGoogleSheet, 
+  appendClientToGoogleSheet, 
+  appendQuoteToGoogleSheet, 
+  fullSyncToGoogleSheet, 
+  getSavedSpreadsheetUrl,
+  ensureDatabaseSpreadsheet 
+} from './googleSheetsService';
 
 type Tab = 'clients' | 'products' | 'quotes' | 'settings';
 
@@ -58,6 +73,63 @@ const App: React.FC = () => {
     nextQuoteNumber: 1,
   });
   const [quoteToEdit, setQuoteToEdit] = useState<SavedQuote | null>(null);
+
+  // --- Google Drive / Sheets Integration State ---
+  const [googleUser, setGoogleUser] = useState<any>(null);
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(() => getGoogleAccessToken());
+  const [spreadsheetUrl, setSpreadsheetUrl] = useState<string | null>(() => getSavedSpreadsheetUrl());
+
+  // Listen for Google Auth state
+  useEffect(() => {
+    const unsubscribe = initGoogleAuth(
+      (user, token) => {
+        setGoogleUser(user);
+        setGoogleAccessToken(token);
+        const url = getSavedSpreadsheetUrl();
+        if (url) setSpreadsheetUrl(url);
+      },
+      () => {
+        setGoogleUser(null);
+        setGoogleAccessToken(null);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  const handleConnectGoogle = async () => {
+    try {
+      const result = await signInWithGoogle();
+      if (result) {
+        setGoogleUser(result.user);
+        setGoogleAccessToken(result.accessToken);
+        // Automatically ensure or find spreadsheet on first login
+        const sheet = await ensureDatabaseSpreadsheet(result.accessToken);
+        setSpreadsheetUrl(sheet.url);
+      }
+    } catch (err: any) {
+      console.error('Falha ao autenticar com Google:', err);
+      throw err;
+    }
+  };
+
+  const handleDisconnectGoogle = async () => {
+    await logoutGoogle();
+    setGoogleUser(null);
+    setGoogleAccessToken(null);
+  };
+
+  const handleSyncAllToGoogleSheets = async () => {
+    if (!googleAccessToken) {
+      throw new Error('Conta Google não conectada. Conecte sua conta primeiro.');
+    }
+    const result = await fullSyncToGoogleSheet(googleAccessToken, clients, products, savedQuotes);
+    setSpreadsheetUrl(result.url);
+    return {
+      success: true,
+      message: '✅ Todos os produtos, clientes e orçamentos foram sincronizados com sucesso para a planilha!',
+      url: result.url
+    };
+  };
 
   // --- Sync Room State ---
   const [syncRoomId, setSyncRoomId] = useState<string>(() => {
@@ -580,6 +652,14 @@ const App: React.FC = () => {
     safeSetItem('clients', JSON.stringify(updatedClients));
     saveToIndexedDB('clients', updatedClients);
     pushToCloud(updatedClients, products, savedQuotes, companyInfo, quoteSettings);
+
+    // Auto-save new client to Google Sheets in the user's Google Drive
+    const token = googleAccessToken || getGoogleAccessToken();
+    if (token) {
+      appendClientToGoogleSheet(token, newClient).catch((err) => {
+        console.warn('Não foi possível adicionar cliente à planilha Google:', err);
+      });
+    }
   };
 
   const updateClient = (updatedClient: Client) => {
@@ -605,6 +685,14 @@ const App: React.FC = () => {
     safeSetItem('products', JSON.stringify(updatedProducts));
     saveToIndexedDB('products', updatedProducts);
     pushToCloud(clients, updatedProducts, savedQuotes, companyInfo, quoteSettings);
+
+    // Auto-save new product to Google Sheets in the user's Google Drive
+    const token = googleAccessToken || getGoogleAccessToken();
+    if (token) {
+      appendProductsToGoogleSheet(token, [newProduct]).catch((err) => {
+        console.warn('Não foi possível adicionar produto à planilha Google:', err);
+      });
+    }
   };
 
   const addMultipleProducts = (newProducts: Omit<Product, 'id'>[]) => {
@@ -614,6 +702,14 @@ const App: React.FC = () => {
       safeSetItem('products', JSON.stringify(updatedProducts));
       saveToIndexedDB('products', updatedProducts);
       pushToCloud(clients, updatedProducts, savedQuotes, companyInfo, quoteSettings);
+
+      // Auto-save imported products to Google Sheets in the user's Google Drive
+      const token = googleAccessToken || getGoogleAccessToken();
+      if (token) {
+        appendProductsToGoogleSheet(token, productsWithIds).catch((err) => {
+          console.warn('Não foi possível adicionar produtos importados à planilha Google:', err);
+        });
+      }
   };
 
   const updateProduct = (updatedProduct: Product) => {
@@ -689,6 +785,15 @@ const App: React.FC = () => {
     safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
     saveToIndexedDB('savedQuotes', updatedQuotes);
     pushToCloud(clients, updatedProducts, updatedQuotes, companyInfo, currentSettings);
+
+    // Auto-save new quote (with client name and all product items) to Google Sheets in the user's Google Drive
+    const token = googleAccessToken || getGoogleAccessToken();
+    if (token) {
+      appendQuoteToGoogleSheet(token, newQuote).catch((err) => {
+        console.warn('Não foi possível salvar o orçamento na planilha Google:', err);
+      });
+    }
+
     alert('Orçamento salvo com sucesso!');
   };
 
@@ -1006,6 +1111,12 @@ const App: React.FC = () => {
                     syncRoomId={syncRoomId}
                     onSetSyncRoomId={handleSetSyncRoomId}
                     onForceReloadData={handleForceReloadData}
+                    googleUser={googleUser}
+                    googleAccessToken={googleAccessToken}
+                    spreadsheetUrl={spreadsheetUrl}
+                    onConnectGoogle={handleConnectGoogle}
+                    onDisconnectGoogle={handleDisconnectGoogle}
+                    onSyncAllToGoogleSheets={handleSyncAllToGoogleSheets}
                 />;
       default:
         return null;
@@ -1129,15 +1240,27 @@ const App: React.FC = () => {
         <header className="bg-white shadow-sm sticky top-0 z-20">
             <div className="max-w-7xl mx-auto px-2 sm:px-6 lg:px-8 py-2 sm:py-3">
                 <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
-                    {/* Título e Badge de Banco de Dados Local Offline */}
+                    {/* Título e Badges de Conectividade e Banco de Dados */}
                     <div className="hidden sm:flex items-center gap-3">
                       <h1 className="text-2xl font-bold text-slate-900">
                           Gerenciador
                       </h1>
                       <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200" title="Todos os dados são salvos localmente no seu dispositivo e funcionam offline sem internet.">
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                        Banco Local (Offline)
+                        Banco Local
                       </span>
+                      {googleUser ? (
+                        <a
+                          href={spreadsheetUrl || '#'}
+                          target={spreadsheetUrl ? '_blank' : undefined}
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition"
+                          title="Planilha sincronizada e salva no Google Drive"
+                        >
+                          <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                          Google Sheets Conectado
+                        </a>
+                      ) : null}
                     </div>
                     
                     <div className="flex items-center gap-2 w-full sm:w-auto">
