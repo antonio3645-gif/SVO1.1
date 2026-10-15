@@ -15,7 +15,17 @@ const syncRooms = new Map<string, RoomData>();
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+
+  // Parse port from CLI arguments (e.g., --port 3000) or environment variable
+  let port = 3000;
+  for (let i = 0; i < process.argv.length; i++) {
+    if (process.argv[i] === "--port" && process.argv[i + 1]) {
+      port = parseInt(process.argv[i + 1], 10);
+    }
+  }
+  if (process.env.PORT) {
+    port = parseInt(process.env.PORT, 10);
+  }
 
   app.use(express.json({ limit: "50mb" }));
 
@@ -62,7 +72,10 @@ async function startServer() {
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);
@@ -74,9 +87,12 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on http://localhost:${PORT}`);
+  app.listen(port, "0.0.0.0", () => {
+    console.log(`Server running on http://0.0.0.0:${port}`);
   });
 }
 
-startServer();
+startServer().catch((err) => {
+  console.error("Failed to start server:", err);
+  process.exit(1);
+});

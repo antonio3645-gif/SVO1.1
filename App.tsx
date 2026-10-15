@@ -64,6 +64,7 @@ const App: React.FC = () => {
     showProductSector: false,
     showProductImage: false,
     showImageInPriceTable: false,
+    showItemDiscountPercent: false,
     defaultNotes: '',
     allowQuoteWithoutStock: true,
     sectors: [],

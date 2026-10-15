@@ -138,6 +138,8 @@ export const initializeSpreadsheetHeaders = async (spreadsheetId: string, access
     'Setor',
     'Preço de Custo (R$)',
     'Preço de Venda (R$)',
+    'Desconto (%)',
+    'Preço c/ Desconto (R$)',
     'Estoque',
     'Observação',
     'Data de Atualização'
@@ -251,19 +253,25 @@ export const appendProductsToGoogleSheet = async (
   const { id: spreadsheetId } = await ensureDatabaseSpreadsheet(accessToken);
   const now = new Date().toLocaleString('pt-BR');
 
-  const rows = products.map(p => [
-    p.code || '',
-    p.type === 'service' ? 'Serviço' : 'Produto',
-    p.name || '',
-    p.sector || '',
-    formatBRL(p.costPrice),
-    formatBRL(p.sellPrice),
-    p.type === 'service' ? '-' : (p.stock ?? 0),
-    p.observation || '',
-    now,
-  ]);
+  const rows = products.map(p => {
+    const hasDiscount = typeof p.discountPercent === 'number' && p.discountPercent > 0;
+    const discountedPrice = hasDiscount ? p.sellPrice * (1 - p.discountPercent! / 100) : p.sellPrice;
+    return [
+      p.code || '',
+      p.type === 'service' ? 'Serviço' : 'Produto',
+      p.name || '',
+      p.sector || '',
+      formatBRL(p.costPrice),
+      formatBRL(p.sellPrice),
+      hasDiscount ? `${p.discountPercent}%` : '-',
+      hasDiscount ? formatBRL(discountedPrice) : formatBRL(p.sellPrice),
+      p.type === 'service' ? '-' : (p.stock ?? 0),
+      p.observation || '',
+      now,
+    ];
+  });
 
-  const range = encodeURIComponent("'Produtos & Serviços'!A:I");
+  const range = encodeURIComponent("'Produtos & Serviços'!A:K");
   await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED`, {
     method: 'POST',
     headers: {
@@ -389,17 +397,23 @@ export const fullSyncToGoogleSheet = async (
   });
 
   // Prepare products rows
-  const productRows = products.map(p => [
-    p.code || '',
-    p.type === 'service' ? 'Serviço' : 'Produto',
-    p.name || '',
-    p.sector || '',
-    formatBRL(p.costPrice),
-    formatBRL(p.sellPrice),
-    p.type === 'service' ? '-' : (p.stock ?? 0),
-    p.observation || '',
-    now,
-  ]);
+  const productRows = products.map(p => {
+    const hasDiscount = typeof p.discountPercent === 'number' && p.discountPercent > 0;
+    const discountedPrice = hasDiscount ? p.sellPrice * (1 - p.discountPercent! / 100) : p.sellPrice;
+    return [
+      p.code || '',
+      p.type === 'service' ? 'Serviço' : 'Produto',
+      p.name || '',
+      p.sector || '',
+      formatBRL(p.costPrice),
+      formatBRL(p.sellPrice),
+      hasDiscount ? `${p.discountPercent}%` : '-',
+      hasDiscount ? formatBRL(discountedPrice) : formatBRL(p.sellPrice),
+      p.type === 'service' ? '-' : (p.stock ?? 0),
+      p.observation || '',
+      now,
+    ];
+  });
 
   // Prepare client rows
   const clientRows = clients.map(c => [

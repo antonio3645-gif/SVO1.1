@@ -13,8 +13,10 @@ import firebaseConfig from './firebase-applet-config.json';
 
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
-export const db: Firestore = firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-  ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
+const config = firebaseConfig as Record<string, any>;
+
+export const db: Firestore = config.firestoreDatabaseId && config.firestoreDatabaseId !== '(default)'
+  ? getFirestore(app, config.firestoreDatabaseId)
   : getFirestore(app);
 
 export const auth: Auth = getAuth(app);

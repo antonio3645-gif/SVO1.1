@@ -35,6 +35,8 @@ export interface Product {
   image?: string;
   sector?: string;
   observation?: string;
+  discountPercent?: number;
+  originalSellPrice?: number;
 }
 
 export interface QuoteItem {
@@ -53,6 +55,7 @@ export interface QuoteSettings {
   showProductSector: boolean;
   showProductImage: boolean;
   showImageInPriceTable: boolean;
+  showItemDiscountPercent?: boolean;
   defaultNotes: string;
   allowQuoteWithoutStock: boolean;
   sectors: string[];

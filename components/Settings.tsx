@@ -1,5 +1,5 @@
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, Component } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import { QrCode, Copy, Check, Smartphone, Laptop, Wifi, Camera, Link, Link2, Sparkles, RefreshCw, AlertCircle, CheckCircle2, RotateCcw, FileSpreadsheet, ExternalLink, CloudUpload, LogIn, LogOut, Loader2 } from 'lucide-react';
 import { QRScannerModal } from './QRScannerModal';
@@ -37,40 +37,41 @@ interface SettingsProps {
   onSyncAllToGoogleSheets?: () => Promise<{ success: boolean; message: string; url?: string }>;
 }
 
-class SafeQRCode extends React.Component<{ value: string; fallbackValue: string; size?: number }, { hasError: boolean }> {
-  constructor(props: { value: string; fallbackValue: string; size?: number }) {
-    super(props);
-    this.state = { hasError: false };
-  }
+interface SafeQRCodeProps {
+  value: string;
+  fallbackValue: string;
+  size?: number;
+}
 
-  static getDerivedStateFromError() {
-    return { hasError: true };
-  }
+const SafeQRCode: React.FC<SafeQRCodeProps> = ({ value, fallbackValue, size = 180 }) => {
+  const [hasError, setHasError] = useState(false);
 
-  componentDidCatch(error: any) {
-    console.warn('QRCodeSVG error caught safely:', error);
-  }
+  React.useEffect(() => {
+    setHasError(false);
+  }, [value]);
 
-  componentDidUpdate(prevProps: { value: string }) {
-    if (prevProps.value !== this.props.value && this.state.hasError) {
-      this.setState({ hasError: false });
-    }
-  }
+  const valueToRender = hasError || !value ? (fallbackValue || 'https://ais-pre-t47sjfsq7z5slmnbaj3ba5-2269761606.us-east5.run.app') : value;
 
-  render() {
-    const size = this.props.size || 180;
-    const valueToRender = this.state.hasError ? this.props.fallbackValue : this.props.value;
-
+  try {
     return (
       <QRCodeSVG
-        value={valueToRender || 'https://ais-pre-t47sjfsq7z5slmnbaj3ba5-2269761606.us-east5.run.app'}
+        value={valueToRender}
+        size={size}
+        level="L"
+        includeMargin={true}
+      />
+    );
+  } catch (err) {
+    return (
+      <QRCodeSVG
+        value={fallbackValue || 'https://ais-pre-t47sjfsq7z5slmnbaj3ba5-2269761606.us-east5.run.app'}
         size={size}
         level="L"
         includeMargin={true}
       />
     );
   }
-}
+};
 
 const Settings: React.FC<SettingsProps> = ({ 
   logo, onSetLogo, onDeleteLogo, 
@@ -772,6 +773,29 @@ const Settings: React.FC<SettingsProps> = ({
                         aria-hidden="true"
                         className={`${
                             quoteSettings.showDiscount ? 'translate-x-5' : 'translate-x-0'
+                        } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
+                        />
+                    </button>
+                </div>
+                <div className="flex items-center justify-between">
+                    <span className="flex-grow flex flex-col" id="item-discount-label">
+                        <span className="text-sm font-medium text-slate-900">Desconto em porcentagem nos itens</span>
+                        <span className="text-sm text-slate-500">Habilita o campo de desconto (%) no cadastro de itens e exibe na tabela de preços e na impressão por setor.</span>
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => onSetQuoteSettings({ ...quoteSettings, showItemDiscountPercent: !quoteSettings.showItemDiscountPercent })}
+                        className={`${
+                            quoteSettings.showItemDiscountPercent ? 'bg-[--color-primary-600]' : 'bg-slate-200'
+                        } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-primary-500]`}
+                        role="switch"
+                        aria-checked={!!quoteSettings.showItemDiscountPercent}
+                        aria-labelledby="item-discount-label"
+                    >
+                        <span
+                        aria-hidden="true"
+                        className={`${
+                            quoteSettings.showItemDiscountPercent ? 'translate-x-5' : 'translate-x-0'
                         } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
                         />
                     </button>

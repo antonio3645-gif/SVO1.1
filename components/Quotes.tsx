@@ -175,13 +175,25 @@ const Quotes: React.FC<QuotesProps> = ({
             return;
         }
 
+        const hasDiscount = Boolean(productToAdd.discountPercent && productToAdd.discountPercent > 0);
+        const effectiveSellPrice = hasDiscount
+          ? Number((productToAdd.sellPrice * (1 - productToAdd.discountPercent! / 100)).toFixed(2))
+          : productToAdd.sellPrice;
+
+        const productWithEffectivePrice: Product = {
+          ...productToAdd,
+          sellPrice: effectiveSellPrice,
+          originalSellPrice: productToAdd.sellPrice,
+        };
+
         const existingItemIndex = quoteItems.findIndex(item => item.product.id === itemId);
         if(existingItemIndex !== -1){
             const updatedItems = [...quoteItems];
             updatedItems[existingItemIndex].quantity += qty;
+            updatedItems[existingItemIndex].product = productWithEffectivePrice;
             setQuoteItems(updatedItems);
         } else {
-            setQuoteItems([...quoteItems, { product: productToAdd, quantity: qty }]);
+            setQuoteItems([...quoteItems, { product: productWithEffectivePrice, quantity: qty }]);
         }
       
       if (type === 'product') {
@@ -480,7 +492,10 @@ const Quotes: React.FC<QuotesProps> = ({
         ${quoteSettings.showProductImage ? `<td style="padding: 4px 6px; text-align: center; vertical-align: middle; width: 50px;">${item.product.image ? `<img src="${item.product.image}" alt="${item.product.name}" style="max-height: 40px; max-width: 40px; object-fit: contain; display: block; margin: 0 auto; border-radius: 4px;" />` : '-'}</td>` : ''}
         ${quoteSettings.showProductCode ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569; vertical-align: middle;">${item.product.code || '-'}</td>` : ''}
         ${quoteSettings.showProductSector ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569; vertical-align: middle;">${item.product.sector || '-'}</td>` : ''}
-        <td style="padding: 4px 6px; font-size: 12px; vertical-align: middle;">${item.product.name}</td>
+        <td style="padding: 4px 6px; font-size: 12px; vertical-align: middle;">
+          ${item.product.name}
+          ${item.product.discountPercent && item.product.discountPercent > 0 ? `<div style="font-size: 10px; color: #059669; font-weight: bold; margin-top: 1px;">(Desconto de ${item.product.discountPercent}% já aplicado)</div>` : ''}
+        </td>
         <td style="padding: 4px 6px; text-align: right; font-size: 12px; vertical-align: middle;">${item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
         <td style="padding: 4px 6px; text-align: right; font-size: 12px; vertical-align: middle;">${(item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       </tr>
@@ -618,7 +633,8 @@ const Quotes: React.FC<QuotesProps> = ({
 
     quote.items.forEach(item => {
         const totalItem = (item.quantity * item.product.sellPrice).toFixed(2);
-        message += `• ${item.quantity}x ${item.product.name}: R$ ${totalItem}\n`;
+        const discountNote = item.product.discountPercent && item.product.discountPercent > 0 ? ` (${item.product.discountPercent}% desc. aplicado)` : '';
+        message += `• ${item.quantity}x ${item.product.name}${discountNote}: R$ ${totalItem}\n`;
     });
 
     if (quote.discountAmount > 0) {
@@ -732,12 +748,31 @@ const Quotes: React.FC<QuotesProps> = ({
                         className="w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
                     >
                         <option value="">Selecione um produto...</option>
-                        {productList.map(p => (
-                            <option key={p.id} value={p.id}>
-                                {p.code} - {p.name} (R$ {p.sellPrice.toFixed(2)})
-                            </option>
-                        ))}
+                        {productList.map(p => {
+                            const hasDiscount = Boolean(p.discountPercent && p.discountPercent > 0);
+                            const finalPrice = hasDiscount ? p.sellPrice * (1 - p.discountPercent! / 100) : p.sellPrice;
+                            return (
+                                <option key={p.id} value={p.id}>
+                                    {p.code} - {p.name} (R$ {finalPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{hasDiscount ? ` - ${p.discountPercent}% OFF` : ''})
+                                </option>
+                            );
+                        })}
                     </select>
+
+                    {(() => {
+                        const selProd = productList.find(p => p.id === selectedProductId);
+                        if (selProd && selProd.discountPercent && selProd.discountPercent > 0) {
+                            const discountedPrice = selProd.sellPrice * (1 - selProd.discountPercent / 100);
+                            return (
+                                <div className="text-xs bg-emerald-50 text-emerald-800 p-2.5 rounded-md border border-emerald-200 flex justify-between items-center animate-in fade-in">
+                                    <span className="font-medium">Item com <strong>{selProd.discountPercent}% de desconto</strong></span>
+                                    <span>De: <span className="line-through text-slate-400">R$ {selProd.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> por <strong className="text-emerald-700 text-sm">R$ {discountedPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                                </div>
+                            );
+                        }
+                        return null;
+                    })()}
+
                     <div className="flex gap-2">
                         <input 
                             type="number" 
@@ -765,12 +800,31 @@ const Quotes: React.FC<QuotesProps> = ({
                         className="w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
                     >
                         <option value="">Selecione um serviço...</option>
-                        {serviceList.map(s => (
-                            <option key={s.id} value={s.id}>
-                                {s.code} - {s.name} (R$ {s.sellPrice.toFixed(2)})
-                            </option>
-                        ))}
+                        {serviceList.map(s => {
+                            const hasDiscount = Boolean(s.discountPercent && s.discountPercent > 0);
+                            const finalPrice = hasDiscount ? s.sellPrice * (1 - s.discountPercent! / 100) : s.sellPrice;
+                            return (
+                                <option key={s.id} value={s.id}>
+                                    {s.code} - {s.name} (R$ {finalPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{hasDiscount ? ` - ${s.discountPercent}% OFF` : ''})
+                                </option>
+                            );
+                        })}
                     </select>
+
+                    {(() => {
+                        const selServ = serviceList.find(s => s.id === selectedServiceId);
+                        if (selServ && selServ.discountPercent && selServ.discountPercent > 0) {
+                            const discountedPrice = selServ.sellPrice * (1 - selServ.discountPercent / 100);
+                            return (
+                                <div className="text-xs bg-emerald-50 text-emerald-800 p-2.5 rounded-md border border-emerald-200 flex justify-between items-center animate-in fade-in">
+                                    <span className="font-medium">Serviço com <strong>{selServ.discountPercent}% de desconto</strong></span>
+                                    <span>De: <span className="line-through text-slate-400">R$ {selServ.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span> por <strong className="text-emerald-700 text-sm">R$ {discountedPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong></span>
+                                </div>
+                            );
+                        }
+                        return null;
+                    })()}
+
                     <div className="flex gap-2">
                         <input 
                             type="number" 
@@ -1104,7 +1158,14 @@ const Quotes: React.FC<QuotesProps> = ({
                                   )}
                                   {quoteSettings.showProductCode && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.code || '-'}</td>}
                                   {quoteSettings.showProductSector && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.sector || '-'}</td>}
-                                  <td className="py-1 px-1.5 align-middle">{item.product.name}</td>
+                                  <td className="py-1 px-1.5 align-middle">
+                                      <div>{item.product.name}</div>
+                                      {item.product.discountPercent && item.product.discountPercent > 0 && (
+                                          <span className="inline-block text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 mt-0.5">
+                                              Desconto de {item.product.discountPercent}% já aplicado
+                                          </span>
+                                      )}
+                                  </td>
                                   <td className="py-1 px-1.5 text-right align-middle">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                   <td className="py-1 px-1.5 text-right align-middle">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
                                   <td className="py-1 px-1.5 text-center align-middle print-hidden">
@@ -1142,7 +1203,14 @@ const Quotes: React.FC<QuotesProps> = ({
                                   )}
                                   {quoteSettings.showProductCode && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.code || '-'}</td>}
                                   {quoteSettings.showProductSector && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.sector || '-'}</td>}
-                                  <td className="py-1 px-1.5 align-middle">{item.product.name}</td>
+                                  <td className="py-1 px-1.5 align-middle">
+                                      <div>{item.product.name}</div>
+                                      {item.product.discountPercent && item.product.discountPercent > 0 && (
+                                          <span className="inline-block text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 mt-0.5">
+                                              Desconto de {item.product.discountPercent}% já aplicado
+                                          </span>
+                                      )}
+                                  </td>
                                   <td className="py-1 px-1.5 text-right align-middle">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                   <td className="py-1 px-1.5 text-right align-middle">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
                                   <td className="py-1 px-1.5 text-center align-middle print-hidden">
