@@ -55,6 +55,7 @@ const Products: React.FC<ProductsProps> = ({
   const [type, setType] = useState<'product' | 'service'>('product');
   // Initialize code with the next available code
   const [code, setCode] = useState(() => getNextCode());
+  const [internalCode, setInternalCode] = useState('');
   const [name, setName] = useState('');
   const [costPrice, setCostPrice] = useState('');
   const [sellPrice, setSellPrice] = useState('');
@@ -123,6 +124,7 @@ const Products: React.FC<ProductsProps> = ({
     }
     
     setName('');
+    setInternalCode('');
     setCostPrice('');
     setSellPrice('');
     setStock('');
@@ -141,6 +143,7 @@ const Products: React.FC<ProductsProps> = ({
     
     // Validação de limite de caracteres
     const finalCode = code.slice(0, 18).trim();
+    const finalInternalCode = internalCode.slice(0, 30).trim();
     const finalName = name.slice(0, 53).trim();
 
     if (!finalCode) {
@@ -189,6 +192,7 @@ const Products: React.FC<ProductsProps> = ({
             ...editingProduct,
             type,
             code: finalCode,
+            internalCode: finalInternalCode || undefined,
             name: finalName,
             costPrice: finalCostPrice,
             sellPrice: parseFloat(sellPrice),
@@ -204,6 +208,7 @@ const Products: React.FC<ProductsProps> = ({
         addProduct({
           type,
           code: finalCode,
+          internalCode: finalInternalCode || undefined,
           name: finalName,
           costPrice: finalCostPrice,
           sellPrice: parseFloat(sellPrice),
@@ -222,6 +227,7 @@ const Products: React.FC<ProductsProps> = ({
     setEditingProduct(product);
     setType(product.type || 'product');
     setCode(product.code);
+    setInternalCode(product.internalCode || '');
     setName(product.name);
     setCostPrice(String(product.costPrice));
     setSellPrice(String(product.sellPrice));
@@ -246,6 +252,7 @@ const Products: React.FC<ProductsProps> = ({
       const searchTermMatch = !lowercasedFilter ||
         product.name.toLowerCase().includes(lowercasedFilter) ||
         product.code.toLowerCase().includes(lowercasedFilter) ||
+        (product.internalCode && product.internalCode.toLowerCase().includes(lowercasedFilter)) ||
         (product.sector && product.sector.toLowerCase().includes(lowercasedFilter));
 
       // Price filters
@@ -269,9 +276,10 @@ const Products: React.FC<ProductsProps> = ({
       return;
     }
 
-    const dataToExport = products.map(({ type, code, name, costPrice, sellPrice, stock, sector, observation, discountPercent }) => ({
+    const dataToExport = products.map(({ type, code, internalCode, name, costPrice, sellPrice, stock, sector, observation, discountPercent }) => ({
         type: type || 'product',
         code,
+        internalCode: internalCode || '',
         name,
         costPrice,
         sellPrice,
@@ -344,7 +352,7 @@ const Products: React.FC<ProductsProps> = ({
             const existingCodesSet = new Set(products.map(p => p.code.trim().toLowerCase()));
 
             results.data.forEach((row: any, index: number) => {
-                const { type, code, name, costPrice, sellPrice, stock, sector, observation, discountPercent } = row;
+                const { type, code, internalCode, name, costPrice, sellPrice, stock, sector, observation, discountPercent } = row;
                 
                 // Basic validation
                 // Use parseNumber to check sellPrice validity
@@ -368,6 +376,7 @@ const Products: React.FC<ProductsProps> = ({
                 newProducts.push({
                     type: (type === 'service' ? 'service' : 'product'),
                     code: trimmedCode,
+                    internalCode: internalCode ? String(internalCode).trim().slice(0, 30) : undefined,
                     name: String(name).slice(0, 53),
                     costPrice: parseNumber(costPrice),
                     sellPrice: parseNumber(sellPrice),
@@ -477,6 +486,11 @@ const Products: React.FC<ProductsProps> = ({
             </td>
           ` : ''}
           <td style="padding: 6px 8px; font-size: 12px; color: #64748b; white-space: nowrap; vertical-align: middle;">${product.code || '-'}</td>
+          ${quoteSettings.showInternalCodeInPriceTable ? `
+            <td style="padding: 6px 8px; font-size: 12px; font-weight: 600; color: #3730a3; white-space: nowrap; vertical-align: middle;">
+              ${product.internalCode || '-'}
+            </td>
+          ` : ''}
           <td style="padding: 6px 8px; font-size: 13px; font-weight: 500; color: #0f172a; vertical-align: middle;">${product.name.charAt(0).toUpperCase() + product.name.slice(1).toLowerCase()}</td>
           ${quoteSettings.showItemDiscountPercent ? `
             <td style="padding: 6px 8px; font-size: 12px; text-align: right; color: #334155; vertical-align: middle;">
@@ -524,6 +538,7 @@ const Products: React.FC<ProductsProps> = ({
             <tr>
               ${quoteSettings.showImageInPriceTable ? '<th style="text-align: center; width: 50px;">Imagem</th>' : ''}
               <th style="text-align: left; width: 80px;">Código</th>
+              ${quoteSettings.showInternalCodeInPriceTable ? '<th style="text-align: left; width: 95px;">Cód. Interno</th>' : ''}
               <th style="text-align: left;">Item</th>
               ${quoteSettings.showItemDiscountPercent ? `
                 <th style="text-align: right; width: 125px;">Preço de Tabela</th>
@@ -733,34 +748,55 @@ const Products: React.FC<ProductsProps> = ({
             </div>
           </div>
 
-          <div>
-            <div className="flex justify-between items-center">
-              <label htmlFor="code" className="block text-sm font-medium text-slate-700">Código</label>
-              <span className={`text-xs ${code.length >= 18 ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
-                {code.length}/18
-              </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <div className="flex justify-between items-center">
+                <label htmlFor="code" className="block text-sm font-medium text-slate-700">Código</label>
+                <span className={`text-xs ${code.length >= 18 ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
+                  {code.length}/18
+                </span>
+              </div>
+              <input 
+                  type="text" 
+                  id="code" 
+                  value={code} 
+                  onChange={(e) => setCode(e.target.value.slice(0, 18))} 
+                  maxLength={18}
+                  className={`mt-1 block w-full px-3 py-2 bg-white border ${
+                    isCodeDuplicate 
+                      ? 'border-red-500 text-red-900 focus:ring-red-500 focus:border-red-500 bg-red-50/20' 
+                      : 'border-slate-300 focus:ring-[--color-primary-500] focus:border-[--color-primary-500]'
+                  } rounded-md shadow-sm focus:outline-none`} 
+                  required 
+                  placeholder="Ex: 0001"
+              />
+              {isCodeDuplicate ? (
+                <p className="text-xs text-red-600 font-semibold mt-1 flex items-center gap-1">
+                  ⚠️ Código já cadastrado.
+                </p>
+              ) : (
+                <p className="text-xs text-slate-500 mt-1">Código do item (máx. 18).</p>
+              )}
             </div>
-            <input 
-                type="text" 
-                id="code" 
-                value={code} 
-                onChange={(e) => setCode(e.target.value.slice(0, 18))} 
-                maxLength={18}
-                className={`mt-1 block w-full px-3 py-2 bg-white border ${
-                  isCodeDuplicate 
-                    ? 'border-red-500 text-red-900 focus:ring-red-500 focus:border-red-500 bg-red-50/20' 
-                    : 'border-slate-300 focus:ring-[--color-primary-500] focus:border-[--color-primary-500]'
-                } rounded-md shadow-sm focus:outline-none`} 
-                required 
-                placeholder="Ex: 0001"
-            />
-            {isCodeDuplicate ? (
-              <p className="text-xs text-red-600 font-semibold mt-1 flex items-center gap-1">
-                ⚠️ Este código já está cadastrado para outro item. Não são permitidos códigos iguais.
-              </p>
-            ) : (
-              <p className="text-xs text-slate-500 mt-1">Código gerado automaticamente, mas pode ser editado (máx. 18 caracteres).</p>
-            )}
+
+            <div>
+              <div className="flex justify-between items-center">
+                <label htmlFor="internalCode" className="block text-sm font-medium text-slate-700">Código Interno</label>
+                <span className={`text-xs ${internalCode.length >= 30 ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
+                  {internalCode.length}/30
+                </span>
+              </div>
+              <input 
+                  type="text" 
+                  id="internalCode" 
+                  value={internalCode} 
+                  onChange={(e) => setInternalCode(e.target.value.slice(0, 30))} 
+                  maxLength={30}
+                  className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" 
+                  placeholder="Ex: REF-1020"
+              />
+              <p className="text-xs text-slate-500 mt-1">Código interno de referência (opcional).</p>
+            </div>
           </div>
           <div>
             <div className="flex justify-between items-center">
@@ -997,7 +1033,14 @@ const Products: React.FC<ProductsProps> = ({
                                         )}
                                         {product.sector && <span className="text-xs font-semibold bg-gray-200 text-gray-700 px-2 py-0.5 rounded-full">{product.sector}</span>}
                                     </div>
-                                    <p className="text-slate-600 text-sm">Código: {product.code}</p>
+                                    <p className="text-slate-600 text-sm flex flex-wrap items-center gap-x-2">
+                                        <span>Código: <strong className="font-semibold text-slate-800">{product.code}</strong></span>
+                                        {product.internalCode && (
+                                            <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                Cód. Interno: {product.internalCode}
+                                            </span>
+                                        )}
+                                    </p>
                                     {product.type === 'product' && (
                                         <p className={`text-sm font-medium ${product.stock <= 5 ? 'text-[--color-destructive-600]' : 'text-slate-600'}`}>
                                             Estoque: {product.stock}
@@ -1105,7 +1148,7 @@ const Products: React.FC<ProductsProps> = ({
                     <p className="text-sm text-slate-500 mt-2 mb-4">Visualize uma tabela com todos os seus itens, organizada por setor.</p>
                     
                     <div className="bg-slate-50 p-4 rounded-md border">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
+                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
                             <div className="flex items-center">
                                 <button
                                     type="button"
@@ -1122,6 +1165,23 @@ const Products: React.FC<ProductsProps> = ({
                                     />
                                 </button>
                                 <label className="text-sm font-medium text-slate-700">Exibir imagem</label>
+                            </div>
+                            <div className="flex items-center">
+                                <button
+                                    type="button"
+                                    onClick={() => onSetQuoteSettings({ ...quoteSettings, showInternalCodeInPriceTable: !quoteSettings.showInternalCodeInPriceTable })}
+                                    className={`${
+                                        quoteSettings.showInternalCodeInPriceTable ? 'bg-[--color-primary-600]' : 'bg-slate-300'
+                                    } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-primary-500] mr-3`}
+                                    role="switch"
+                                    aria-checked={!!quoteSettings.showInternalCodeInPriceTable}
+                                >
+                                    <span className={`${
+                                        quoteSettings.showInternalCodeInPriceTable ? 'translate-x-5' : 'translate-x-0'
+                                    } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
+                                    />
+                                </button>
+                                <label className="text-sm font-medium text-slate-700">Exibir Cód. Interno</label>
                             </div>
                             <div>
                                 <label htmlFor="priceTableSector" className="block text-sm font-medium text-slate-700 mb-1">Filtrar por Setor</label>
@@ -1203,6 +1263,9 @@ const Products: React.FC<ProductsProps> = ({
                                         <tr>
                                         {quoteSettings.showImageInPriceTable && <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-24">Imagem</th>}
                                         <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Código</th>
+                                        {quoteSettings.showInternalCodeInPriceTable && (
+                                            <th className="px-4 py-2 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">Cód. Interno</th>
+                                        )}
                                         <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Item</th>
                                         {quoteSettings.showItemDiscountPercent ? (
                                             <>
@@ -1234,6 +1297,11 @@ const Products: React.FC<ProductsProps> = ({
                                                 </td>
                                                 )}
                                                 <td className="px-4 py-2 whitespace-nowrap text-sm text-slate-500">{product.code}</td>
+                                                {quoteSettings.showInternalCodeInPriceTable && (
+                                                    <td className="px-4 py-2 whitespace-nowrap text-sm font-semibold text-indigo-800 bg-indigo-50/40 font-mono">
+                                                        {product.internalCode || <span className="text-slate-300 font-normal font-sans">-</span>}
+                                                    </td>
+                                                )}
                                                 <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-slate-900">
                                                     {product.name.charAt(0).toUpperCase() + product.name.slice(1).toLowerCase()}
                                                 </td>

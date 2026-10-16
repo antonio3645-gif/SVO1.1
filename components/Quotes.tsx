@@ -445,7 +445,7 @@ const Quotes: React.FC<QuotesProps> = ({
       return `${day}/${month}/${year} - ${hours}:${minutes}`;
   };
 
-  const tableCols = 3 + (quoteSettings.showProductCode ? 1 : 0) + (quoteSettings.showProductSector ? 1 : 0) + (quoteSettings.showProductImage ? 1 : 0);
+  const tableCols = 3 + (quoteSettings.showProductCode ? 1 : 0) + (quoteSettings.showProductInternalCode ? 1 : 0) + (quoteSettings.showProductSector ? 1 : 0) + (quoteSettings.showProductImage ? 1 : 0);
 
   // --- Logic from SavedQuotes component ---
 
@@ -465,7 +465,7 @@ const Quotes: React.FC<QuotesProps> = ({
         (quote.notes && quote.notes.toLowerCase().includes(searchLower)) ||
         formattedDate.includes(searchLower) ||
         String(quote.finalTotal).includes(searchLower) ||
-        quote.items.some(i => i.product.name.toLowerCase().includes(searchLower) || (i.product.code && i.product.code.toLowerCase().includes(searchLower)))
+        quote.items.some(i => i.product.name.toLowerCase().includes(searchLower) || (i.product.code && i.product.code.toLowerCase().includes(searchLower)) || (i.product.internalCode && i.product.internalCode.toLowerCase().includes(searchLower)))
       );
 
       const numMatch = numberFilter 
@@ -491,6 +491,7 @@ const Quotes: React.FC<QuotesProps> = ({
         <td style="padding: 4px 6px; text-align: center; font-size: 12px; vertical-align: middle;">${item.quantity}</td>
         ${quoteSettings.showProductImage ? `<td style="padding: 4px 6px; text-align: center; vertical-align: middle; width: 50px;">${item.product.image ? `<img src="${item.product.image}" alt="${item.product.name}" style="max-height: 40px; max-width: 40px; object-fit: contain; display: block; margin: 0 auto; border-radius: 4px;" />` : '-'}</td>` : ''}
         ${quoteSettings.showProductCode ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569; vertical-align: middle;">${item.product.code || '-'}</td>` : ''}
+        ${quoteSettings.showProductInternalCode ? `<td style="padding: 4px 6px; font-size: 12px; font-weight: 600; color: #4338ca; vertical-align: middle;">${item.product.internalCode || '-'}</td>` : ''}
         ${quoteSettings.showProductSector ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569; vertical-align: middle;">${item.product.sector || '-'}</td>` : ''}
         <td style="padding: 4px 6px; font-size: 12px; vertical-align: middle;">
           ${item.product.name}
@@ -570,6 +571,7 @@ const Quotes: React.FC<QuotesProps> = ({
               <th style="padding: 4px 6px; width: 64px; font-weight: normal; color: #0f172a;">Quantidade</th>
               ${quoteSettings.showProductImage ? '<th style="padding: 4px 6px; width: 50px; font-weight: normal; color: #0f172a; text-align: center;">Imagem</th>' : ''}
               ${quoteSettings.showProductCode ? '<th style="padding: 4px 6px; width: 112px; font-weight: normal; color: #0f172a;">Código</th>' : ''}
+              ${quoteSettings.showProductInternalCode ? '<th style="padding: 4px 6px; width: 100px; font-weight: normal; color: #0f172a;">Cód. Interno</th>' : ''}
               ${quoteSettings.showProductSector ? '<th style="padding: 4px 6px; width: 80px; font-weight: normal; color: #0f172a;">Setor</th>' : ''}
               <th style="padding: 4px 6px; font-weight: normal; color: #0f172a;">Descrição</th>
               <th style="padding: 4px 6px; width: 96px; text-align: right; font-weight: normal; color: #0f172a;">Valor Unitário</th>
@@ -1123,6 +1125,7 @@ const Quotes: React.FC<QuotesProps> = ({
                               <th className="py-1 px-1.5 w-16">Quantidade</th>
                               {quoteSettings.showProductImage && <th className="py-1 px-1.5 w-14 text-center">Imagem</th>}
                               {quoteSettings.showProductCode && <th className="py-1 px-1.5 w-28">Código</th>}
+                              {quoteSettings.showProductInternalCode && <th className="py-1 px-1.5 w-24">Cód. Interno</th>}
                               {quoteSettings.showProductSector && <th className="py-1 px-1.5 w-20">Setor</th>}
                               <th className="py-1 px-1.5">Descrição</th>
                               <th className="py-1 px-1.5 w-24 text-right">Valor Unitário</th>
@@ -1157,6 +1160,7 @@ const Quotes: React.FC<QuotesProps> = ({
                                       </td>
                                   )}
                                   {quoteSettings.showProductCode && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.code || '-'}</td>}
+                                  {quoteSettings.showProductInternalCode && <td className="py-1 px-1.5 font-medium text-indigo-700 align-middle">{item.product.internalCode || '-'}</td>}
                                   {quoteSettings.showProductSector && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.sector || '-'}</td>}
                                   <td className="py-1 px-1.5 align-middle">
                                       <div>{item.product.name}</div>
@@ -1202,6 +1206,7 @@ const Quotes: React.FC<QuotesProps> = ({
                                       </td>
                                   )}
                                   {quoteSettings.showProductCode && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.code || '-'}</td>}
+                                  {quoteSettings.showProductInternalCode && <td className="py-1 px-1.5 font-medium text-indigo-700 align-middle">{item.product.internalCode || '-'}</td>}
                                   {quoteSettings.showProductSector && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.sector || '-'}</td>}
                                   <td className="py-1 px-1.5 align-middle">
                                       <div>{item.product.name}</div>
@@ -1223,7 +1228,7 @@ const Quotes: React.FC<QuotesProps> = ({
 
                           {quoteItems.length === 0 && (
                               <tr>
-                                  <td colSpan={4 + (quoteSettings.showProductImage ? 1 : 0) + (quoteSettings.showProductCode ? 1 : 0) + (quoteSettings.showProductSector ? 1 : 0) + 1} className="py-8 text-center text-slate-400 italic">
+                                  <td colSpan={4 + (quoteSettings.showProductImage ? 1 : 0) + (quoteSettings.showProductCode ? 1 : 0) + (quoteSettings.showProductInternalCode ? 1 : 0) + (quoteSettings.showProductSector ? 1 : 0) + 1} className="py-8 text-center text-slate-400 italic">
                                       Adicione produtos ou serviços para começar o orçamento
                                   </td>
                               </tr>

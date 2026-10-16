@@ -10,6 +10,7 @@ import { FileDownIcon } from './icons/FileDownIcon';
 import { BuildingIcon } from './icons/BuildingIcon';
 import { PaletteIcon } from './icons/PaletteIcon';
 import { LockIcon } from './icons/LockIcon';
+import { PackagePlusIcon } from './icons/PackagePlusIcon';
 import type { QuoteSettings, CompanyInfo } from '../types';
 import { db, doc, getDoc, ensureAuth } from '../firebase';
 import { signInWithGoogle, logoutGoogle, getGoogleAccessToken } from '../googleAuth';
@@ -709,6 +710,41 @@ const Settings: React.FC<SettingsProps> = ({
         </div>
 
         <div className="pt-8">
+            <div className="flex items-center gap-3">
+                <PackagePlusIcon className="h-6 w-6 text-slate-600"/>
+                <h3 className="text-lg font-medium text-slate-700">Produtos</h3>
+            </div>
+            <p className="text-sm text-slate-500 mt-2 mb-4">
+                Configurações específicas para o cadastro e exibição de itens.
+            </p>
+            <div className="space-y-6">
+                <div className="flex items-center justify-between">
+                    <span className="flex-grow flex flex-col" id="product-internal-code-label">
+                        <span className="text-sm font-medium text-slate-900">Código Interno</span>
+                        <span className="text-sm text-slate-500">Habilita e mantém o campo de Código Interno sempre visível ao adicionar novos produtos ou fazer alterações.</span>
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => onSetQuoteSettings({ ...quoteSettings, enableProductInternalCode: quoteSettings.enableProductInternalCode === false ? true : false })}
+                        className={`${
+                            quoteSettings.enableProductInternalCode !== false ? 'bg-[--color-primary-600]' : 'bg-slate-200'
+                        } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-primary-500]`}
+                        role="switch"
+                        aria-checked={quoteSettings.enableProductInternalCode !== false}
+                        aria-labelledby="product-internal-code-label"
+                    >
+                        <span
+                        aria-hidden="true"
+                        className={`${
+                            quoteSettings.enableProductInternalCode !== false ? 'translate-x-5' : 'translate-x-0'
+                        } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
+                        />
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div className="pt-8">
             <h3 className="text-lg font-medium text-slate-700 mb-2">Opções do Orçamento</h3>
              <div className="space-y-6">
                 <div className="flex items-center justify-between">
@@ -819,6 +855,52 @@ const Settings: React.FC<SettingsProps> = ({
                         aria-hidden="true"
                         className={`${
                             quoteSettings.showProductCode ? 'translate-x-5' : 'translate-x-0'
+                        } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
+                        />
+                    </button>
+                </div>
+                <div className="flex items-center justify-between">
+                    <span className="flex-grow flex flex-col" id="product-internal-code-table-label">
+                        <span className="text-sm font-medium text-slate-900">Exibir código interno na tabela de produtos</span>
+                        <span className="text-sm text-slate-500">Ao clicar neste botão, adiciona a opção de Código Interno na lista de produtos para ser impressa ou gerada em PDF.</span>
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => onSetQuoteSettings({ ...quoteSettings, showInternalCodeInPriceTable: !quoteSettings.showInternalCodeInPriceTable })}
+                        className={`${
+                            quoteSettings.showInternalCodeInPriceTable ? 'bg-[--color-primary-600]' : 'bg-slate-200'
+                        } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-primary-500]`}
+                        role="switch"
+                        aria-checked={!!quoteSettings.showInternalCodeInPriceTable}
+                        aria-labelledby="product-internal-code-table-label"
+                    >
+                        <span
+                        aria-hidden="true"
+                        className={`${
+                            quoteSettings.showInternalCodeInPriceTable ? 'translate-x-5' : 'translate-x-0'
+                        } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
+                        />
+                    </button>
+                </div>
+                <div className="flex items-center justify-between">
+                    <span className="flex-grow flex flex-col" id="product-internal-code-quote-label">
+                        <span className="text-sm font-medium text-slate-900">Exibir código interno no orçamento</span>
+                        <span className="text-sm text-slate-500">Mostra a coluna de Código Interno no corpo do orçamento impresso/PDF.</span>
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => onSetQuoteSettings({ ...quoteSettings, showProductInternalCode: !quoteSettings.showProductInternalCode })}
+                        className={`${
+                            quoteSettings.showProductInternalCode ? 'bg-[--color-primary-600]' : 'bg-slate-200'
+                        } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-primary-500]`}
+                        role="switch"
+                        aria-checked={!!quoteSettings.showProductInternalCode}
+                        aria-labelledby="product-internal-code-quote-label"
+                    >
+                        <span
+                        aria-hidden="true"
+                        className={`${
+                            quoteSettings.showProductInternalCode ? 'translate-x-5' : 'translate-x-0'
                         } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
                         />
                     </button>

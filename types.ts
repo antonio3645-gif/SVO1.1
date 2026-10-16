@@ -28,6 +28,7 @@ export interface Product {
   id: string;
   type: 'product' | 'service';
   code: string;
+  internalCode?: string;
   name: string;
   costPrice: number;
   sellPrice: number;
@@ -52,10 +53,13 @@ export interface QuoteSettings {
   showDiscount: boolean;
   autoSave: boolean;
   showProductCode: boolean;
+  showProductInternalCode?: boolean;
   showProductSector: boolean;
   showProductImage: boolean;
   showImageInPriceTable: boolean;
   showItemDiscountPercent?: boolean;
+  showInternalCodeInPriceTable?: boolean;
+  enableProductInternalCode?: boolean;
   defaultNotes: string;
   allowQuoteWithoutStock: boolean;
   sectors: string[];
