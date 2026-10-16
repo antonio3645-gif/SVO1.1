@@ -422,6 +422,16 @@ const Quotes: React.FC<QuotesProps> = ({
     if (!saved) return;
     await handleGeneratePdfFromSaved(saved);
   };
+
+  const handleWhatsApp = async () => {
+    if (currentSavedQuoteIndex >= 0 && savedQuotes[currentSavedQuoteIndex]) {
+      await handleSendWhatsApp(savedQuotes[currentSavedQuoteIndex]);
+      return;
+    }
+    const saved = saveCurrentQuote();
+    if (!saved) return;
+    await handleSendWhatsApp(saved);
+  };
   
   const formatDateDisplay = (dateString: string, timeString?: string) => {
       if (!dateString) return '';
@@ -619,47 +629,11 @@ const Quotes: React.FC<QuotesProps> = ({
     window.location.reload();
   };
   
-  const handleSendWhatsApp = (quote: SavedQuote) => {
-    let phone = quote.client.phone.replace(/\D/g, '');
-    if (!phone) {
-        alert("O cliente não possui um número de telefone cadastrado.");
-        return;
-    }
-    // Simple heuristic for Brazil: if 10 or 11 digits, add 55.
-    if (phone.length >= 10 && phone.length <= 11) {
-        phone = '55' + phone;
-    }
-
-    const quoteNumText = quote.number ? `Nº ${String(quote.number).padStart(4, '0')} ` : '';
-    let message = `Olá *${quote.client.name}*, aqui está o resumo do seu orçamento ${quoteNumText}(${formatDateTime(quote.createdAt)}):\n\n`;
-
-    quote.items.forEach(item => {
-        const totalItem = (item.quantity * item.product.sellPrice).toFixed(2);
-        const discountNote = item.product.discountPercent && item.product.discountPercent > 0 ? ` (${item.product.discountPercent}% desc. aplicado)` : '';
-        message += `• ${item.quantity}x ${item.product.name}${discountNote}: R$ ${totalItem}\n`;
-    });
-
-    if (quote.discountAmount > 0) {
-         message += `\nSubtotal: R$ ${quote.subtotal.toFixed(2)}`;
-         message += `\nDesconto: - R$ ${quote.discountAmount.toFixed(2)}`;
-    }
-
-    message += `\n*Total: R$ ${quote.finalTotal.toFixed(2)}*`;
-
-    if (companyInfo?.name) {
-        message += `\n\nAtt, *${companyInfo.name}*`;
-    }
-
-    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-    window.open(url, '_blank');
-  };
-
-  const handleGeneratePdfFromSaved = async (quote: SavedQuote) => {
+  const createQuotePdf = async (quote: SavedQuote) => {
     const input = printRef.current;
     // @ts-ignore
     if (!input || !window.html2canvas || !window.jspdf) {
-        alert("Erro ao carregar recursos para gerar PDF. Tente novamente.");
-        return;
+        throw new Error("Recursos para gerar PDF não carregados.");
     }
     input.innerHTML = generateQuoteHTML(quote);
 
@@ -688,16 +662,148 @@ const Quotes: React.FC<QuotesProps> = ({
             heightLeft -= pageHeight;
         }
 
-        const clientName = quote.client.name.replace(/\s+/g, '_');
-        const date = new Date(quote.createdAt).toISOString().slice(0, 10);
-        pdf.save(`Orcamento-${clientName}-${date}.pdf`);
+        const clientName = (quote.client?.name || 'Cliente').replace(/\s+/g, '_');
+        const date = new Date(quote.createdAt || Date.now()).toISOString().slice(0, 10);
+        const fileName = `Orcamento-${clientName}-${date}.pdf`;
+        const pdfBlob = pdf.output('blob') as Blob;
 
-    } catch (error) {
-        console.error("Erro ao gerar PDF:", error);
-        alert("Ocorreu um erro ao gerar o PDF.");
+        return { pdf, fileName, pdfBlob };
     } finally {
         input.innerHTML = '';
     }
+  };
+
+  const handleGeneratePdfFromSaved = async (quote: SavedQuote) => {
+    try {
+        const { pdf, fileName } = await createQuotePdf(quote);
+        pdf.save(fileName);
+    } catch (error) {
+        console.error("Erro ao gerar PDF:", error);
+        alert("Ocorreu um erro ao gerar o PDF.");
+    }
+  };
+
+  const handleSendWhatsApp = async (quote: SavedQuote) => {
+    let phone = quote.client.phone ? quote.client.phone.replace(/\D/g, '') : '';
+    if (!phone) {
+        const inputPhone = prompt("O cliente não possui um telefone cadastrado.\nInforme o número com DDD para enviar via WhatsApp (ex: 11999998888):");
+        if (!inputPhone) return;
+        phone = inputPhone.replace(/\D/g, '');
+        if (!phone) {
+            alert("Número de telefone inválido.");
+            return;
+        }
+    }
+    // Simple heuristic for Brazil: if 10 or 11 digits, add 55.
+    if (phone.length >= 10 && phone.length <= 11) {
+        phone = '55' + phone;
+    }
+
+    const quoteNumText = quote.number ? `Nº ${String(quote.number).padStart(4, '0')}` : '';
+    const formattedDate = formatDateTime(quote.createdAt);
+
+    // Formatação visual e estruturada de documento / proposta de orçamento PDF
+    let message = `━━━━━━━━━━━━━━━━━━━━━━\n`;
+    message += `📄 *ORÇAMENTO / PROPOSTA COMERCIAL ${quoteNumText}*\n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━\n`;
+
+    if (companyInfo?.name) {
+        message += `🏢 *${companyInfo.name.toUpperCase()}*\n`;
+        if (companyInfo.cnpj) message += `CNPJ: ${companyInfo.cnpj}\n`;
+        if (companyInfo.phone) message += `Tel: ${companyInfo.phone}\n`;
+        if (companyInfo.email) message += `E-mail: ${companyInfo.email}\n`;
+        if (companyInfo.address) message += `End.: ${companyInfo.address}\n`;
+        message += `──────────────────────\n`;
+    }
+
+    message += `👤 *DADOS DO CLIENTE*\n`;
+    message += `*Cliente:* ${quote.client.name}\n`;
+    if (quote.client.cpf) message += `*CPF:* ${quote.client.cpf}\n`;
+    if (quote.client.cnpj) message += `*CNPJ:* ${quote.client.cnpj}\n`;
+    if (quote.client.phone) message += `*Telefone:* ${quote.client.phone}\n`;
+    if (quote.client.address) {
+        const addrDetails = [quote.client.address, quote.client.city, quote.client.zipCode ? `CEP ${quote.client.zipCode}` : ''].filter(Boolean).join(' - ');
+        message += `*Endereço:* ${addrDetails}\n`;
+    }
+    message += `*Data/Hora de Emissão:* ${formattedDate}\n`;
+    message += `──────────────────────\n`;
+
+    message += `📦 *ITENS DA PROPOSTA*\n`;
+    message += `──────────────────────\n`;
+
+    quote.items.forEach((item, idx) => {
+        const totalItem = (item.quantity * item.product.sellPrice).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const unitPrice = item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const discountNote = item.product.discountPercent && item.product.discountPercent > 0 ? ` (${item.product.discountPercent}% desc.)` : '';
+        const internalCodeText = quoteSettings.showProductInternalCode && item.product.internalCode ? ` [Cód. Int: ${item.product.internalCode}]` : (quoteSettings.showProductCode && item.product.code ? ` [Cód: ${item.product.code}]` : '');
+
+        message += `${idx + 1}. *${item.quantity}x ${item.product.name}*${internalCodeText}\n`;
+        message += `   Unit: R$ ${unitPrice}${discountNote}  |  Subtotal: *R$ ${totalItem}*\n`;
+    });
+
+    message += `──────────────────────\n`;
+    message += `💰 *RESUMO FINANCEIRO*\n`;
+    if (quote.discountAmount > 0) {
+        const subtotalFormatted = quote.subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        const discountFormatted = quote.discountAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        message += `Subtotal: R$ ${subtotalFormatted}\n`;
+        message += `Desconto (${quote.discountType === 'percent' ? quote.discount + '%' : 'R$'}): - R$ ${discountFormatted}\n`;
+    }
+    const finalFormatted = quote.finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    message += `*VALOR TOTAL: R$ ${finalFormatted}*\n`;
+    message += `──────────────────────\n`;
+
+    if (quote.notes && quote.notes.trim()) {
+        message += `📝 *OBSERVAÇÕES:*\n${quote.notes.trim()}\n`;
+        message += `──────────────────────\n`;
+    }
+
+    message += `📎 *Documento PDF oficial anexado / gerado com sucesso.* \n`;
+    message += `━━━━━━━━━━━━━━━━━━━━━━`;
+
+    // 1. Gera o PDF oficial do orçamento e baixa para o dispositivo
+    let generatedPdf: { pdf: any; fileName: string; pdfBlob: Blob } | null = null;
+    try {
+        generatedPdf = await createQuotePdf(quote);
+        generatedPdf.pdf.save(generatedPdf.fileName);
+    } catch (err) {
+        console.warn("Aviso ao gerar arquivo PDF antes do WhatsApp:", err);
+    }
+
+    // 2. Se o dispositivo suportar compartilhamento nativo de arquivo (ex: navegadores móveis), abre o menu de compartilhamento com o PDF anexado
+    if (generatedPdf && typeof navigator !== 'undefined' && 'canShare' in navigator) {
+        try {
+            const pdfFile = new File([generatedPdf.pdfBlob], generatedPdf.fileName, { type: 'application/pdf' });
+            if (navigator.canShare({ files: [pdfFile] })) {
+                await navigator.share({
+                    files: [pdfFile],
+                    title: `Orçamento ${quoteNumText} - ${quote.client.name}`,
+                    text: message,
+                });
+                return;
+            }
+        } catch (shareErr: any) {
+            if (shareErr.name !== 'AbortError') {
+                console.log("Web Share não concluído, abrindo WhatsApp diretamente:", shareErr);
+            } else {
+                return; // Usuário cancelou o compartilhamento
+            }
+        }
+    }
+
+    // 3. Abre diretamente a conversa no WhatsApp Web / App com a proposta formatada no estilo PDF
+    const url = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+        if (document.body.contains(link)) {
+            document.body.removeChild(link);
+        }
+    }, 100);
   };
 
   return (
@@ -1004,6 +1110,16 @@ const Quotes: React.FC<QuotesProps> = ({
                               >
                                   <FileDownIcon className="h-3.5 w-3.5 text-orange-800"/>
                                   <span>PDF</span>
+                              </button>
+
+                              <button 
+                                  type="button"
+                                  onClick={handleWhatsApp} 
+                                  title="Enviar Orçamento por WhatsApp"
+                                  className="px-2.5 h-8 inline-flex items-center gap-1.5 border border-emerald-300 rounded text-xs font-semibold text-emerald-900 bg-gradient-to-b from-emerald-100 to-emerald-200 hover:from-emerald-200 hover:to-emerald-300 shadow-xs transition-colors cursor-pointer"
+                              >
+                                  <WhatsAppIcon className="h-3.5 w-3.5 text-emerald-800"/>
+                                  <span>WhatsApp</span>
                               </button>
 
                               <button 

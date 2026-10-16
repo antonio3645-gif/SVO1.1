@@ -10,6 +10,7 @@ import { TrashIcon } from './icons/TrashIcon';
 import { FileTextIcon } from './icons/FileTextIcon';
 import { PriceTagIcon } from './icons/PriceTagIcon';
 import { PrinterIcon } from './icons/PrinterIcon';
+import { WhatsAppIcon } from './icons/WhatsAppIcon';
 
 
 interface ProductsProps {
@@ -77,7 +78,7 @@ const Products: React.FC<ProductsProps> = ({
   const [activeView, setActiveView] = useState('list');
   const [newSector, setNewSector] = useState('');
   const [selectedPriceTableSector, setSelectedPriceTableSector] = useState('all');
-  const [sectorModalAction, setSectorModalAction] = useState<'print' | 'pdf' | null>(null);
+  const [sectorModalAction, setSectorModalAction] = useState<'print' | 'pdf' | 'whatsapp' | null>(null);
   const priceTableRef = useRef<HTMLDivElement>(null);
 
   // Verificação em tempo real de código duplicado
@@ -711,6 +712,63 @@ const Products: React.FC<ProductsProps> = ({
     }
   };
 
+  const handleWhatsAppSector = (sectorName: string) => {
+    const sectorProducts = (productsBySector[sectorName] || []).filter(p => {
+      const pSector = p.sector && p.sector.trim() !== '' ? p.sector : 'Sem Setor';
+      return pSector === sectorName;
+    });
+
+    if (sectorProducts.length === 0) {
+      alert(`Nenhum item encontrado no setor "${sectorName}".`);
+      return;
+    }
+
+    const inputPhone = prompt(`Deseja enviar a Tabela de Preços do setor "${sectorName}" para qual número de WhatsApp?\n(Deixe em branco para abrir o WhatsApp e escolher o contato):`);
+    let phone = inputPhone ? inputPhone.replace(/\D/g, '') : '';
+    if (phone && phone.length >= 10 && phone.length <= 11) {
+      phone = '55' + phone;
+    }
+
+    const companyTitle = companyInfo?.name ? `*${companyInfo.name.toUpperCase()}*\n` : '';
+    let message = `${companyTitle}📋 *TABELA DE PREÇOS - SETOR: ${sectorName.toUpperCase()}*\n`;
+    message += `Data: ${new Date().toLocaleDateString('pt-BR')}\n\n`;
+
+    sectorProducts.forEach(product => {
+      const hasDiscount = Boolean(quoteSettings.showItemDiscountPercent && typeof product.discountPercent === 'number' && product.discountPercent > 0);
+      const discountedPrice = hasDiscount ? product.sellPrice * (1 - (product.discountPercent || 0) / 100) : product.sellPrice;
+      const internalCodeText = quoteSettings.showInternalCodeInPriceTable && product.internalCode ? ` [${product.internalCode}]` : '';
+
+      if (hasDiscount) {
+        message += `• *${product.name}*${internalCodeText}\n  De: R$ ${product.sellPrice.toFixed(2)} | Desc: ${product.discountPercent}%\n  *Por: R$ ${discountedPrice.toFixed(2)}*\n`;
+      } else {
+        message += `• *${product.name}*${internalCodeText}: *R$ ${product.sellPrice.toFixed(2)}*\n`;
+      }
+    });
+
+    if (companyInfo?.phone || companyInfo?.address) {
+      message += `\n${companyInfo.phone ? `Tel: ${companyInfo.phone}\n` : ''}${companyInfo.address ? `End: ${companyInfo.address}\n` : ''}`;
+    }
+
+    const url = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}` : `https://wa.me/?text=${encodeURIComponent(message)}`;
+    const link = document.createElement('a');
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => {
+      if (document.body.contains(link)) document.body.removeChild(link);
+    }, 100);
+  };
+
+  const handleTopWhatsAppClick = () => {
+    if (selectedPriceTableSector !== 'all') {
+      handleWhatsAppSector(selectedPriceTableSector);
+    } else {
+      setSectorModalAction('whatsapp');
+    }
+  };
+
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 p-4 md:p-8">
@@ -1219,6 +1277,15 @@ const Products: React.FC<ProductsProps> = ({
                                     <FileDownIcon className="h-4 w-4 mr-2 text-slate-500" />
                                     {selectedPriceTableSector !== 'all' ? `PDF (${selectedPriceTableSector})` : 'Exportar PDF...'}
                                 </button>
+                                <button 
+                                    type="button"
+                                    onClick={handleTopWhatsAppClick} 
+                                    className="inline-flex items-center px-4 py-2 border border-emerald-300 rounded-md shadow-sm text-sm font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                                    title={selectedPriceTableSector !== 'all' ? `Enviar por WhatsApp somente o setor "${selectedPriceTableSector}"` : "Escolher setor para enviar por WhatsApp"}
+                                >
+                                    <WhatsAppIcon className="h-4 w-4 mr-2 text-emerald-600" />
+                                    {selectedPriceTableSector !== 'all' ? `WhatsApp (${selectedPriceTableSector})` : 'WhatsApp...'}
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1254,6 +1321,15 @@ const Products: React.FC<ProductsProps> = ({
                                     >
                                       <FileDownIcon className="h-3.5 w-3.5 mr-1 text-slate-500" />
                                       PDF
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleWhatsAppSector(sector)}
+                                      className="inline-flex items-center px-2.5 py-1 border border-emerald-300 rounded-md shadow-xs text-xs font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                                      title={`Enviar WhatsApp somente do setor ${sector}`}
+                                    >
+                                      <WhatsAppIcon className="h-3.5 w-3.5 mr-1 text-emerald-600" />
+                                      WhatsApp
                                     </button>
                                   </div>
                                 </div>
@@ -1412,13 +1488,19 @@ const Products: React.FC<ProductsProps> = ({
             <div className="flex justify-between items-start mb-4 border-b pb-3">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 bg-[--color-primary-100] text-[--color-primary-700] rounded-lg">
-                  {sectorModalAction === 'print' ? <PrinterIcon className="w-5 h-5" /> : <FileDownIcon className="w-5 h-5" />}
+                  {sectorModalAction === 'print' ? (
+                    <PrinterIcon className="w-5 h-5" />
+                  ) : sectorModalAction === 'pdf' ? (
+                    <FileDownIcon className="w-5 h-5" />
+                  ) : (
+                    <WhatsAppIcon className="w-5 h-5 text-emerald-600" />
+                  )}
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-900">
-                    {sectorModalAction === 'print' ? 'Imprimir Setor' : 'Exportar PDF do Setor'}
+                    {sectorModalAction === 'print' ? 'Imprimir Setor' : sectorModalAction === 'pdf' ? 'Exportar PDF do Setor' : 'Enviar Setor por WhatsApp'}
                   </h3>
-                  <p className="text-xs text-slate-500">Selecione o setor desejado para emissão da tabela</p>
+                  <p className="text-xs text-slate-500">Selecione o setor desejado para a tabela</p>
                 </div>
               </div>
               <button
@@ -1432,7 +1514,7 @@ const Products: React.FC<ProductsProps> = ({
             </div>
 
             <p className="text-xs text-slate-600 mb-3 bg-slate-50 p-2.5 rounded-md border border-slate-200">
-              A tabela de preços será gerada <strong>exclusivamente para o setor selecionado</strong>, contendo seus itens, preços de tabela, descontos e preços finais.
+              A tabela de preços será gerada ou enviada <strong>exclusivamente para o setor selecionado</strong>, contendo seus itens, preços de tabela, descontos e preços finais.
             </p>
 
             <div className="space-y-2 max-h-60 overflow-y-auto pr-1 my-3">
@@ -1448,8 +1530,10 @@ const Products: React.FC<ProductsProps> = ({
                       setSectorModalAction(null);
                       if (action === 'print') {
                         handlePrintSector(sector);
-                      } else {
+                      } else if (action === 'pdf') {
                         handleExportPdfSector(sector);
+                      } else if (action === 'whatsapp') {
+                        handleWhatsAppSector(sector);
                       }
                     }}
                     className="w-full flex items-center justify-between p-3 border border-slate-200 rounded-lg hover:border-[--color-primary-500] hover:bg-[--color-primary-50]/40 transition-all text-left group"
