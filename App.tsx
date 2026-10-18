@@ -683,7 +683,11 @@ const App: React.FC = () => {
   };
 
   const addProduct = (product: Omit<Product, 'id'>) => {
-    const newProduct = { ...product, id: crypto.randomUUID() };
+    const newProduct: Product = { 
+      ...product, 
+      id: crypto.randomUUID(),
+      updatedAt: product.updatedAt || new Date().toISOString()
+    };
     const updatedProducts = [...products, newProduct];
     setProducts(updatedProducts);
     safeSetItem('products', JSON.stringify(updatedProducts));
@@ -700,7 +704,12 @@ const App: React.FC = () => {
   };
 
   const addMultipleProducts = (newProducts: Omit<Product, 'id'>[]) => {
-      const productsWithIds = newProducts.map(p => ({ ...p, id: crypto.randomUUID() }));
+      const now = new Date().toISOString();
+      const productsWithIds: Product[] = newProducts.map(p => ({ 
+        ...p, 
+        id: crypto.randomUUID(),
+        updatedAt: p.updatedAt || now
+      }));
       const updatedProducts = [...products, ...productsWithIds];
       setProducts(updatedProducts);
       safeSetItem('products', JSON.stringify(updatedProducts));
@@ -717,7 +726,11 @@ const App: React.FC = () => {
   };
 
   const updateProduct = (updatedProduct: Product) => {
-    const updatedProducts = products.map((p) => (p.id === updatedProduct.id ? updatedProduct : p));
+    const productWithTimestamp: Product = {
+      ...updatedProduct,
+      updatedAt: updatedProduct.updatedAt || new Date().toISOString()
+    };
+    const updatedProducts = products.map((p) => (p.id === updatedProduct.id ? productWithTimestamp : p));
     setProducts(updatedProducts);
     safeSetItem('products', JSON.stringify(updatedProducts));
     saveToIndexedDB('products', updatedProducts);

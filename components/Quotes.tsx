@@ -9,6 +9,7 @@ import { SearchIcon } from './icons/SearchIcon';
 import { TrashIcon } from './icons/TrashIcon';
 import { PencilIcon } from './icons/PencilIcon';
 import { WhatsAppIcon } from './icons/WhatsAppIcon';
+import { ProductImageZoom } from './ProductImageZoom';
 
 
 interface QuotesProps {
@@ -1265,10 +1266,11 @@ const Quotes: React.FC<QuotesProps> = ({
                                   {quoteSettings.showProductImage && (
                                       <td className="py-1 px-1.5 text-center align-middle">
                                           {item.product.image ? (
-                                              <img 
+                                              <ProductImageZoom 
                                                   src={item.product.image} 
                                                   alt={item.product.name} 
                                                   className="w-10 h-10 object-contain rounded border border-slate-200 mx-auto" 
+                                                  containerClassName="w-10 h-10 relative inline-block"
                                               />
                                           ) : (
                                               <span className="text-slate-300 text-xs">-</span>
@@ -1311,10 +1313,11 @@ const Quotes: React.FC<QuotesProps> = ({
                                   {quoteSettings.showProductImage && (
                                       <td className="py-1 px-1.5 text-center align-middle">
                                           {item.product.image ? (
-                                              <img 
+                                              <ProductImageZoom 
                                                   src={item.product.image} 
                                                   alt={item.product.name} 
                                                   className="w-10 h-10 object-contain rounded border border-slate-200 mx-auto" 
+                                                  containerClassName="w-10 h-10 relative inline-block"
                                               />
                                           ) : (
                                               <span className="text-slate-300 text-xs">-</span>

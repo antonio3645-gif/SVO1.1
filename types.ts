@@ -38,6 +38,7 @@ export interface Product {
   observation?: string;
   discountPercent?: number;
   originalSellPrice?: number;
+  updatedAt?: string;
 }
 
 export interface QuoteItem {

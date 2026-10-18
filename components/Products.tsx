@@ -11,6 +11,8 @@ import { FileTextIcon } from './icons/FileTextIcon';
 import { PriceTagIcon } from './icons/PriceTagIcon';
 import { PrinterIcon } from './icons/PrinterIcon';
 import { WhatsAppIcon } from './icons/WhatsAppIcon';
+import { CameraIcon } from './icons/CameraIcon';
+import { ProductImageZoom } from './ProductImageZoom';
 
 
 interface ProductsProps {
@@ -77,9 +79,36 @@ const Products: React.FC<ProductsProps> = ({
 
   const [activeView, setActiveView] = useState('list');
   const [newSector, setNewSector] = useState('');
+  const [returnToProductAfterSectorAdd, setReturnToProductAfterSectorAdd] = useState(false);
+  const newSectorInputRef = useRef<HTMLInputElement>(null);
   const [selectedPriceTableSector, setSelectedPriceTableSector] = useState('all');
+  const [priceTableSortBy, setPriceTableSortBy] = useState<'name' | 'code' | 'internalCode'>('name');
   const [sectorModalAction, setSectorModalAction] = useState<'print' | 'pdf' | 'whatsapp' | null>(null);
+  const [lastUpdatedInfo, setLastUpdatedInfo] = useState<{ name: string; date: string } | null>(null);
   const priceTableRef = useRef<HTMLDivElement>(null);
+
+  const handleGoToSectorManager = () => {
+    setReturnToProductAfterSectorAdd(true);
+    setActiveView('tools');
+    setTimeout(() => {
+      if (newSectorInputRef.current) {
+        newSectorInputRef.current.focus();
+        newSectorInputRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 150);
+  };
+
+  const formatDateTime = (isoString?: string) => {
+    if (!isoString) return '';
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return isoString;
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    return `${day}/${month}/${year} às ${hours}:${minutes}`;
+  };
 
   // Verificação em tempo real de código duplicado
   const isCodeDuplicate = useMemo(() => {
@@ -97,6 +126,145 @@ const Products: React.FC<ProductsProps> = ({
       setCode(getNextCode(products));
     }
   }, [products, editingProduct]);
+
+  // Estados para Câmera / Tirar Foto (Computador e Celular)
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [cameraFacingMode, setCameraFacingMode] = useState<'environment' | 'user'>('environment');
+  const [capturedPhoto, setCapturedPhoto] = useState<string | null>(null);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [isCameraLoading, setIsCameraLoading] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const nativeCameraInputRef = useRef<HTMLInputElement>(null);
+
+  const stopCameraStream = () => {
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
+  };
+
+  const startCamera = async (facing: 'environment' | 'user' = cameraFacingMode) => {
+    setIsCameraLoading(true);
+    setCameraError(null);
+    setCapturedPhoto(null);
+    stopCameraStream();
+
+    if (!navigator?.mediaDevices?.getUserMedia) {
+      setIsCameraLoading(false);
+      setCameraError('Seu navegador ou dispositivo não possui suporte para acesso direto à câmera. Utilize a opção "Câmera do Celular / Arquivo".');
+      return;
+    }
+
+    try {
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            facingMode: { ideal: facing },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+          audio: false,
+        });
+      } catch {
+        // Fallback para dispositivos onde restrições ideais não são suportadas (ex: webcams convencionais de PC)
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
+
+      mediaStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        try {
+          await videoRef.current.play();
+        } catch (playErr) {
+          console.warn("Reprodução automática do vídeo:", playErr);
+        }
+      }
+      setIsCameraLoading(false);
+    } catch (err: any) {
+      console.error('Erro ao acessar a câmera:', err);
+      setIsCameraLoading(false);
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        setCameraError('Permissão da câmera negada. Por favor, autorize o acesso à câmera nas configurações do seu navegador para tirar a foto.');
+      } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+        setCameraError('Nenhuma câmera foi detectada neste computador ou celular.');
+      } else {
+        setCameraError(`Não foi possível iniciar a câmera: ${err.message || 'Erro desconhecido'}`);
+      }
+    }
+  };
+
+  const handleOpenInteractiveCamera = () => {
+    setIsCameraOpen(true);
+    // Timeout para garantir que o elemento <video> esteja montado no DOM antes de associar o stream
+    setTimeout(() => {
+      startCamera(cameraFacingMode);
+    }, 50);
+  };
+
+  const handleCloseCamera = () => {
+    stopCameraStream();
+    setIsCameraOpen(false);
+    setCapturedPhoto(null);
+    setCameraError(null);
+  };
+
+  const handleToggleFacingMode = () => {
+    const nextMode = cameraFacingMode === 'environment' ? 'user' : 'environment';
+    setCameraFacingMode(nextMode);
+    startCamera(nextMode);
+  };
+
+  const handleCapturePhoto = () => {
+    if (!videoRef.current) return;
+    const video = videoRef.current;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    setCapturedPhoto(dataUrl);
+  };
+
+  const handleRetakePhoto = () => {
+    setCapturedPhoto(null);
+    if (videoRef.current && mediaStreamRef.current) {
+      videoRef.current.play().catch(console.error);
+    }
+  };
+
+  const handleConfirmCapturedPhoto = async () => {
+    if (!capturedPhoto) return;
+    try {
+      const compressed = await compressImage(capturedPhoto, 400, 400, 0.7);
+      setImage(compressed);
+    } catch {
+      setImage(capturedPhoto);
+    }
+    handleCloseCamera();
+  };
+
+  const handleOpenNativeCamera = () => {
+    if (nativeCameraInputRef.current) {
+      nativeCameraInputRef.current.click();
+    }
+  };
+
+  // Encerrar stream ao desmontar o componente
+  useEffect(() => {
+    return () => {
+      stopCameraStream();
+    };
+  }, []);
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -136,6 +304,9 @@ const Products: React.FC<ProductsProps> = ({
     const imageInput = document.getElementById('productImage') as HTMLInputElement;
     if (imageInput) {
         imageInput.value = '';
+    }
+    if (nativeCameraInputRef.current) {
+        nativeCameraInputRef.current.value = '';
     }
   }
 
@@ -188,6 +359,9 @@ const Products: React.FC<ProductsProps> = ({
         : [...products, { id: 'temp', code: finalCode } as Product];
     const nextCodeVal = getNextCode(futureList);
 
+    const nowIso = new Date().toISOString();
+    const formattedNow = formatDateTime(nowIso);
+
     if (editingProduct) {
         updateProduct({
             ...editingProduct,
@@ -202,8 +376,10 @@ const Products: React.FC<ProductsProps> = ({
             image: image || editingProduct.image,
             observation: observation.trim() || undefined,
             discountPercent: finalDiscountPercent,
+            updatedAt: nowIso,
         });
-        alert('Item atualizado com sucesso!');
+        setLastUpdatedInfo({ name: finalName, date: formattedNow });
+        alert(`Item "${finalName}" atualizado com sucesso em ${formattedNow}!`);
         resetForm(); // For edit, we usually just want to clear or go back to auto-gen based on list
     } else {
         addProduct({
@@ -218,7 +394,9 @@ const Products: React.FC<ProductsProps> = ({
           image: image || undefined,
           observation: observation.trim() || undefined,
           discountPercent: finalDiscountPercent,
+          updatedAt: nowIso,
         });
+        setLastUpdatedInfo({ name: finalName, date: formattedNow });
         // Pass the calculated next code to resetForm
         resetForm(nextCodeVal);
     }
@@ -277,7 +455,7 @@ const Products: React.FC<ProductsProps> = ({
       return;
     }
 
-    const dataToExport = products.map(({ type, code, internalCode, name, costPrice, sellPrice, stock, sector, observation, discountPercent }) => ({
+    const dataToExport = products.map(({ type, code, internalCode, name, costPrice, sellPrice, stock, sector, observation, discountPercent, updatedAt }) => ({
         type: type || 'product',
         code,
         internalCode: internalCode || '',
@@ -288,6 +466,7 @@ const Products: React.FC<ProductsProps> = ({
         stock,
         sector: sector || '',
         observation: observation || '',
+        updatedAt: updatedAt || '',
     }));
     
     // @ts-ignore
@@ -353,7 +532,7 @@ const Products: React.FC<ProductsProps> = ({
             const existingCodesSet = new Set(products.map(p => p.code.trim().toLowerCase()));
 
             results.data.forEach((row: any, index: number) => {
-                const { type, code, internalCode, name, costPrice, sellPrice, stock, sector, observation, discountPercent } = row;
+                const { type, code, internalCode, name, costPrice, sellPrice, stock, sector, observation, discountPercent, updatedAt } = row;
                 
                 // Basic validation
                 // Use parseNumber to check sellPrice validity
@@ -386,6 +565,7 @@ const Products: React.FC<ProductsProps> = ({
                     observation: observation || undefined,
                     discountPercent: finalDiscountPercent,
                     image: undefined,
+                    updatedAt: updatedAt ? String(updatedAt) : new Date().toISOString(),
                 });
             });
 
@@ -414,10 +594,32 @@ const Products: React.FC<ProductsProps> = ({
         sectors: [...quoteSettings.sectors, trimmedSector].sort(),
       });
       setNewSector('');
+
+      // Se veio da tela de cadastro de produto, retorna automaticamente com o novo setor selecionado
+      if (returnToProductAfterSectorAdd) {
+        setSector(trimmedSector);
+        setActiveView('list');
+        setReturnToProductAfterSectorAdd(false);
+        setTimeout(() => {
+          const sectorSelect = document.getElementById('sector');
+          if (sectorSelect) {
+            sectorSelect.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            sectorSelect.focus();
+          }
+        }, 150);
+      }
     } else if (!trimmedSector) {
-        alert("O nome do setor não pode estar vazio.");
+      alert("O nome do setor não pode estar vazio.");
     } else {
-        alert("Este setor já existe.");
+      // Se o setor já existe e o usuário estava querendo selecioná-lo no produto
+      if (returnToProductAfterSectorAdd) {
+        setSector(trimmedSector);
+        setActiveView('list');
+        setReturnToProductAfterSectorAdd(false);
+        alert(`O setor "${trimmedSector}" já existe e foi selecionado no produto.`);
+        return;
+      }
+      alert("Este setor já existe.");
     }
   };
 
@@ -451,10 +653,25 @@ const Products: React.FC<ProductsProps> = ({
     });
 
     for (const sector in grouped) {
-      grouped[sector].sort((a, b) => a.name.localeCompare(b.name));
+      grouped[sector].sort((a, b) => {
+        if (priceTableSortBy === 'code') {
+          const codeCmp = (a.code || '').localeCompare(b.code || '', undefined, { numeric: true, sensitivity: 'base' });
+          if (codeCmp !== 0) return codeCmp;
+          return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+        }
+        if (priceTableSortBy === 'internalCode') {
+          const intCmp = (a.internalCode || '').localeCompare(b.internalCode || '', undefined, { numeric: true, sensitivity: 'base' });
+          if (intCmp !== 0) return intCmp;
+          return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+        }
+        // Padrão: por item (nome em ordem alfabética)
+        const nameCmp = (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+        if (nameCmp !== 0) return nameCmp;
+        return (a.code || '').localeCompare(b.code || '', undefined, { numeric: true, sensitivity: 'base' });
+      });
     }
     return grouped;
-  }, [products, quoteSettings.sectors]);
+  }, [products, quoteSettings.sectors, priceTableSortBy]);
 
   const generateSectorPriceTablePrintHTML = (sectorName: string, sectorProducts: Product[]) => {
     const title = companyInfo?.name || 'Tabela de Preços';
@@ -533,7 +750,12 @@ const Products: React.FC<ProductsProps> = ({
       <div class="price-table-print">
         ${companyHeaderHtml}
         <h2 class="main-title">${title}</h2>
-        <div class="sector-badge-title">Setor: ${sectorName}</div>
+        <div class="sector-badge-title">
+          Setor: ${sectorName}
+          <span style="font-size: 0.8rem; font-weight: normal; color: #64748b; margin-left: 8px;">
+            (Ordenado por: ${priceTableSortBy === 'code' ? 'Código' : priceTableSortBy === 'internalCode' ? 'Código Interno' : 'Item / Ordem Alfabética'})
+          </span>
+        </div>
         <table>
           <thead>
             <tr>
@@ -730,8 +952,7 @@ const Products: React.FC<ProductsProps> = ({
     }
 
     const companyTitle = companyInfo?.name ? `*${companyInfo.name.toUpperCase()}*\n` : '';
-    let message = `${companyTitle}📋 *TABELA DE PREÇOS - SETOR: ${sectorName.toUpperCase()}*\n`;
-    message += `Data: ${new Date().toLocaleDateString('pt-BR')}\n\n`;
+    let message = `${companyTitle}📋 *TABELA DE PREÇOS - SETOR: ${sectorName.toUpperCase()}*\n\n`;
 
     sectorProducts.forEach(product => {
       const hasDiscount = Boolean(quoteSettings.showItemDiscountPercent && typeof product.discountPercent === 'number' && product.discountPercent > 0);
@@ -773,10 +994,11 @@ const Products: React.FC<ProductsProps> = ({
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 p-4 md:p-8">
       <div className="lg:col-span-1 bg-white p-6 rounded-xl shadow-lg">
-        <h2 className="text-2xl font-bold text-slate-900 mb-6 flex items-center">
+        <h2 className="text-2xl font-bold text-slate-900 mb-4 flex items-center">
           {editingProduct ? <PencilIcon className="mr-3 text-[--color-accent-500]"/> : <PackagePlusIcon className="mr-3 text-[--color-primary-500]"/>}
           {editingProduct ? 'Editar Item' : 'Cadastrar Novo Item'}
         </h2>
+
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-slate-700 mb-2">Tipo de Item</label>
@@ -873,41 +1095,135 @@ const Products: React.FC<ProductsProps> = ({
                 required 
             />
           </div>
-           {quoteSettings.sectors.length > 0 && (
-            <div>
-              <label htmlFor="sector" className="block text-sm font-medium text-slate-700">Setor</label>
-              <select
-                id="sector"
-                value={sector}
-                onChange={(e) => setSector(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]"
-              >
-                <option value="">Nenhum</option>
-                {quoteSettings.sectors.map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-          )}
           <div>
-            <label htmlFor="productImage" className="block text-sm font-medium text-slate-700">Imagem (Opcional)</label>
-            <div className="mt-1 flex items-center space-x-4">
-                <div className="flex-shrink-0 h-20 w-20 rounded-md bg-slate-100 border border-slate-300 flex items-center justify-center">
-                    {image ? (
-                        <img src={image} alt="Pré-visualização" className="h-full w-full object-cover rounded-md" />
-                    ) : (
-                        <span className="text-xs text-slate-500 text-center">Sem imagem</span>
+            <div className="flex items-center justify-between mb-1">
+              <label htmlFor="sector" className="block text-sm font-medium text-slate-700">Setor</label>
+              <button
+                type="button"
+                onClick={handleGoToSectorManager}
+                className="inline-flex items-center gap-1 text-xs font-semibold text-[--color-primary-600] hover:text-[--color-primary-800] hover:underline"
+                title="Cadastrar um novo setor no Gerenciador de Setores"
+              >
+                <span>+ Novo Setor</span>
+              </button>
+            </div>
+            <select
+              id="sector"
+              value={sector}
+              onChange={(e) => {
+                if (e.target.value === '__NEW_SECTOR__') {
+                  handleGoToSectorManager();
+                } else {
+                  setSector(e.target.value);
+                }
+              }}
+              className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]"
+            >
+              <option value="">Nenhum</option>
+              {quoteSettings.sectors.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+              <option value="__NEW_SECTOR__" className="font-semibold text-blue-600">+ Cadastrar Novo Setor...</option>
+            </select>
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label htmlFor="productImage" className="block text-sm font-medium text-slate-700">Imagem (Opcional)</label>
+              <span className="text-[11px] font-medium text-slate-500 flex items-center gap-1">
+                <CameraIcon className="w-3.5 h-3.5 text-blue-600" />
+                Câmera / Arquivo
+              </span>
+            </div>
+
+            <div className="p-3 bg-slate-50/80 border border-slate-200 rounded-xl space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="flex-shrink-0 h-20 w-20 rounded-lg bg-white border border-slate-300 flex items-center justify-center overflow-hidden shadow-2xs relative group">
+                  {image ? (
+                    <ProductImageZoom src={image} alt="Pré-visualização do produto" className="h-full w-full object-cover" containerClassName="h-full w-full relative" />
+                  ) : (
+                    <div className="flex flex-col items-center justify-center text-slate-400 p-1 text-center">
+                      <CameraIcon className="w-6 h-6 mb-0.5 opacity-60" />
+                      <span className="text-[10px] leading-tight font-medium">Sem foto</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="flex-grow space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleOpenInteractiveCamera}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                      title="Abrir câmera para tirar foto do produto (funciona no PC/Notebook e Celular)"
+                    >
+                      <CameraIcon className="w-4 h-4" />
+                      <span>Tirar Foto (Câmera)</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleOpenNativeCamera}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-medium transition-colors sm:hidden"
+                      title="Abrir aplicativo nativo de câmera do smartphone"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                      </svg>
+                      <span>Câmera Celular</span>
+                    </button>
+
+                    {image && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setImage(null);
+                          const imageInput = document.getElementById('productImage') as HTMLInputElement;
+                          if (imageInput) imageInput.value = '';
+                          if (nativeCameraInputRef.current) nativeCameraInputRef.current.value = '';
+                        }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:text-red-800 hover:bg-red-50 rounded-lg transition-colors border border-red-200 bg-white"
+                        title="Remover foto do produto"
+                      >
+                        <TrashIcon className="w-3.5 h-3.5" />
+                        <span>Remover</span>
+                      </button>
                     )}
-                </div>
-                <div className="flex-grow">
-                     <input type="file" id="productImage" accept="image/*" onChange={handleImageChange} className="block w-full text-sm text-slate-500
-                        file:mr-4 file:py-2 file:px-4
+                  </div>
+
+                  <div>
+                    <input
+                      type="file"
+                      id="productImage"
+                      accept="image/*"
+                      onChange={handleImageChange}
+                      className="block w-full text-xs text-slate-600
+                        file:mr-3 file:py-1.5 file:px-3
                         file:rounded-md file:border-0
-                        file:text-sm file:font-semibold
-                        file:bg-[--color-primary-50] file:text-[--color-primary-700]
-                        hover:file:bg-[--color-primary-100]
-                      "/>
+                        file:text-xs file:font-semibold
+                        file:bg-white file:text-slate-700 file:border file:border-slate-300
+                        hover:file:bg-slate-100 cursor-pointer
+                      "
+                    />
+                  </div>
                 </div>
+              </div>
+
+              <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                <span>💡</span>
+                <span>
+                  No computador (webcam) ou no celular, clique em <strong>Tirar Foto (Câmera)</strong> para capturar a imagem do produto instantaneamente.
+                </span>
+              </p>
+
+              {/* Input oculto com acionamento nativo de câmera mobile (capture="environment") */}
+              <input
+                type="file"
+                ref={nativeCameraInputRef}
+                accept="image/*"
+                capture="environment"
+                className="hidden"
+                onChange={handleImageChange}
+              />
             </div>
           </div>
           <div className={`grid ${type === 'product' ? (quoteSettings.showItemDiscountPercent ? 'grid-cols-1 sm:grid-cols-3' : 'grid-cols-2') : (quoteSettings.showItemDiscountPercent ? 'grid-cols-1 sm:grid-cols-2' : 'grid-cols-1')} gap-4`}>
@@ -976,6 +1292,36 @@ const Products: React.FC<ProductsProps> = ({
               className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500] text-sm"
             />
           </div>
+
+          {/* Espaço permanente com a Data da Última Atualização no formulário */}
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Data da Última Atualização
+              </label>
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
+                editingProduct?.updatedAt
+                  ? 'bg-blue-100 text-blue-800 border border-blue-200'
+                  : 'bg-slate-200 text-slate-700'
+              }`}>
+                {editingProduct?.updatedAt ? 'Data Gravada' : 'Automática'}
+              </span>
+            </div>
+            <div className="text-sm font-semibold text-slate-800">
+              {editingProduct
+                ? (editingProduct.updatedAt ? formatDateTime(editingProduct.updatedAt) : 'Sem data gravada anteriormente (será gravada ao salvar)')
+                : (lastUpdatedInfo ? `Última gravação realizada: ${lastUpdatedInfo.date}` : 'A data e hora serão registradas automaticamente ao salvar')}
+            </div>
+            <p className="text-[11px] text-slate-500 mt-1">
+              {editingProduct
+                ? 'Ao clicar em "Salvar Alterações", esta data será atualizada para o momento exato do salvamento.'
+                : 'Sempre que adicionar ou atualizar este item, a data da última alteração fica salva e visível aqui.'}
+            </p>
+          </div>
+
           <div className="flex flex-col gap-2 pt-2">
             <button type="submit" className={`w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white ${editingProduct ? 'bg-[--color-accent-600] hover:bg-[--color-accent-700] focus:ring-[--color-accent-500]' : 'bg-[--color-primary-600] hover:bg-[--color-primary-700] focus:ring-[--color-primary-500]'} focus:outline-none focus:ring-2 focus:ring-offset-2 transition-colors`}>
               {editingProduct ? 'Salvar Alterações' : (type === 'product' ? 'Adicionar Produto' : 'Adicionar Mão de Obra')}
@@ -1076,7 +1422,7 @@ const Products: React.FC<ProductsProps> = ({
                     <div key={product.id} className={`bg-white p-5 rounded-lg shadow-md hover:shadow-lg transition-shadow flex items-start space-x-4 border-l-4 ${product.type === 'service' ? 'border-l-blue-500' : 'border-l-transparent'}`}>
                         {product.image && (
                             <div className="flex-shrink-0 h-20 w-20">
-                                <img src={product.image} alt={product.name} className="h-full w-full object-cover rounded-md" />
+                                <ProductImageZoom src={product.image} alt={product.name} className="h-full w-full object-cover rounded-md" containerClassName="h-full w-full relative" />
                             </div>
                         )}
                         <div className="flex-grow">
@@ -1166,17 +1512,65 @@ const Products: React.FC<ProductsProps> = ({
         {activeView === 'tools' && (
             <div className="space-y-8 bg-white p-6 rounded-lg shadow">
                  <div>
-                    <h3 className="text-lg font-medium text-slate-700 mb-2">Gerenciamento de Setores</h3>
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                        <h3 className="text-lg font-medium text-slate-700">Gerenciamento de Setores</h3>
+                        {returnToProductAfterSectorAdd && (
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setReturnToProductAfterSectorAdd(false);
+                                    setActiveView('list');
+                                }}
+                                className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-700 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 border border-slate-300 px-3 py-1.5 rounded-md transition-colors shadow-2xs"
+                            >
+                                <span>← Voltar ao Cadastro de Produtos</span>
+                            </button>
+                        )}
+                    </div>
+
+                    {returnToProductAfterSectorAdd && (
+                        <div className="mb-4 p-3.5 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-900 flex items-center justify-between gap-3 animate-in fade-in">
+                            <div className="flex items-center gap-2.5">
+                                <span className="text-lg">💡</span>
+                                <div>
+                                    <strong className="block font-semibold">Novo setor para o seu produto:</strong>
+                                    <span>Digite o nome do setor e clique em <strong>Adicionar</strong>. O sistema retornará automaticamente para o cadastro do produto com o setor selecionado!</span>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setReturnToProductAfterSectorAdd(false);
+                                    setActiveView('list');
+                                }}
+                                className="text-blue-700 hover:text-blue-900 underline font-medium shrink-0 text-xs"
+                            >
+                                Cancelar
+                            </button>
+                        </div>
+                    )}
+
                     <p className="text-sm text-slate-500 mb-4">Crie setores para categorizar seus itens.</p>
                     <div className="flex gap-2">
                         <input
                             type="text"
+                            ref={newSectorInputRef}
                             value={newSector}
                             onChange={(e) => setNewSector(e.target.value)}
-                            placeholder="Nome do novo setor"
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleAddSector();
+                                }
+                            }}
+                            placeholder="Nome do novo setor (ex: Ferragens, Elétrica, Pintura...)"
                             className="flex-grow block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]"
                         />
-                        <button onClick={handleAddSector} className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[--color-primary-600] hover:bg-[--color-primary-700]">
+                        <button 
+                            type="button"
+                            onClick={handleAddSector} 
+                            className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-[--color-primary-600] hover:bg-[--color-primary-700] transition-colors"
+                        >
                             Adicionar
                         </button>
                     </div>
@@ -1205,49 +1599,38 @@ const Products: React.FC<ProductsProps> = ({
                     </div>
                     <p className="text-sm text-slate-500 mt-2 mb-4">Visualize uma tabela com todos os seus itens, organizada por setor.</p>
                     
-                    <div className="bg-slate-50 p-4 rounded-md border">
-                        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-center">
-                            <div className="flex items-center">
-                                <button
-                                    type="button"
-                                    onClick={() => onSetQuoteSettings({ ...quoteSettings, showImageInPriceTable: !quoteSettings.showImageInPriceTable })}
-                                    className={`${
-                                        quoteSettings.showImageInPriceTable ? 'bg-[--color-primary-600]' : 'bg-slate-300'
-                                    } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-primary-500] mr-3`}
-                                    role="switch"
-                                    aria-checked={quoteSettings.showImageInPriceTable}
-                                >
-                                    <span className={`${
-                                        quoteSettings.showImageInPriceTable ? 'translate-x-5' : 'translate-x-0'
-                                    } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
-                                    />
-                                </button>
-                                <label className="text-sm font-medium text-slate-700">Exibir imagem</label>
-                            </div>
-                            <div className="flex items-center">
-                                <button
-                                    type="button"
-                                    onClick={() => onSetQuoteSettings({ ...quoteSettings, showInternalCodeInPriceTable: !quoteSettings.showInternalCodeInPriceTable })}
-                                    className={`${
-                                        quoteSettings.showInternalCodeInPriceTable ? 'bg-[--color-primary-600]' : 'bg-slate-300'
-                                    } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-primary-500] mr-3`}
-                                    role="switch"
-                                    aria-checked={!!quoteSettings.showInternalCodeInPriceTable}
-                                >
-                                    <span className={`${
-                                        quoteSettings.showInternalCodeInPriceTable ? 'translate-x-5' : 'translate-x-0'
-                                    } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
-                                    />
-                                </button>
-                                <label className="text-sm font-medium text-slate-700">Exibir Cód. Interno</label>
-                            </div>
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+                            {/* Ordenação da Tabela - Escolher entre Código ou Item */}
                             <div>
-                                <label htmlFor="priceTableSector" className="block text-sm font-medium text-slate-700 mb-1">Filtrar por Setor</label>
+                                <label htmlFor="priceTableSort" className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="w-3.5 h-3.5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+                                    </svg>
+                                    Ordenar Tabela por
+                                </label>
+                                <select
+                                    id="priceTableSort"
+                                    value={priceTableSortBy}
+                                    onChange={(e) => setPriceTableSortBy(e.target.value as 'name' | 'code' | 'internalCode')}
+                                    className="w-full mt-1 block pl-3 pr-8 py-2 text-sm border-slate-300 focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500] rounded-md bg-white shadow-2xs font-medium text-slate-800"
+                                >
+                                    <option value="name">🔤 Ordem Alfabética por Item (Nome)</option>
+                                    <option value="code">🔢 Ordem por Código</option>
+                                    {quoteSettings.showInternalCodeInPriceTable && (
+                                        <option value="internalCode">🏷️ Ordem por Código Interno</option>
+                                    )}
+                                </select>
+                            </div>
+
+                            {/* Filtro por Setor */}
+                            <div>
+                                <label htmlFor="priceTableSector" className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1">Filtrar por Setor</label>
                                 <select
                                     id="priceTableSector"
                                     value={selectedPriceTableSector}
                                     onChange={(e) => setSelectedPriceTableSector(e.target.value)}
-                                    className="w-full mt-1 block pl-3 pr-10 py-2 text-base border-slate-300 focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500] sm:text-sm rounded-md"
+                                    className="w-full mt-1 block pl-3 pr-8 py-2 text-sm border-slate-300 focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500] rounded-md bg-white shadow-2xs font-medium text-slate-800"
                                 >
                                     <option value="all">Todos os Setores</option>
                                     {Object.keys(productsBySector)
@@ -1258,34 +1641,122 @@ const Products: React.FC<ProductsProps> = ({
                                         ))}
                                 </select>
                             </div>
-                            <div className="flex flex-wrap gap-2 md:justify-end items-end">
+
+                            {/* Toggles de Exibição */}
+                            <div className="flex flex-wrap items-center gap-3 py-1">
+                                <div className="flex items-center">
+                                    <button
+                                        type="button"
+                                        onClick={() => onSetQuoteSettings({ ...quoteSettings, showImageInPriceTable: !quoteSettings.showImageInPriceTable })}
+                                        className={`${
+                                            quoteSettings.showImageInPriceTable ? 'bg-[--color-primary-600]' : 'bg-slate-300'
+                                        } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-primary-500] mr-2`}
+                                        role="switch"
+                                        aria-checked={quoteSettings.showImageInPriceTable}
+                                    >
+                                        <span className={`${
+                                            quoteSettings.showImageInPriceTable ? 'translate-x-5' : 'translate-x-0'
+                                        } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
+                                        />
+                                    </button>
+                                    <label className="text-xs font-medium text-slate-700">Fotos</label>
+                                </div>
+                                <div className="flex items-center">
+                                    <button
+                                        type="button"
+                                        onClick={() => onSetQuoteSettings({ ...quoteSettings, showInternalCodeInPriceTable: !quoteSettings.showInternalCodeInPriceTable })}
+                                        className={`${
+                                            quoteSettings.showInternalCodeInPriceTable ? 'bg-[--color-primary-600]' : 'bg-slate-300'
+                                        } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-primary-500] mr-2`}
+                                        role="switch"
+                                        aria-checked={!!quoteSettings.showInternalCodeInPriceTable}
+                                    >
+                                        <span className={`${
+                                            quoteSettings.showInternalCodeInPriceTable ? 'translate-x-5' : 'translate-x-0'
+                                        } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
+                                        />
+                                    </button>
+                                    <label className="text-xs font-medium text-slate-700">Cód. Interno</label>
+                                </div>
+                            </div>
+
+                            {/* Botões de Ação */}
+                            <div className="flex flex-wrap gap-2 justify-end items-end">
                                 <button 
                                     type="button"
                                     onClick={handleTopPrintClick} 
-                                    className="inline-flex items-center px-4 py-2 border border-slate-300 rounded-md shadow-sm text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 transition-colors"
+                                    className="inline-flex items-center px-3.5 py-2 border border-slate-300 rounded-md shadow-2xs text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors"
                                     title={selectedPriceTableSector !== 'all' ? `Imprimir somente o setor "${selectedPriceTableSector}"` : "Escolher setor para imprimir"}
                                 >
-                                    <PrinterIcon className="h-4 w-4 mr-2 text-slate-500" />
-                                    {selectedPriceTableSector !== 'all' ? `Imprimir (${selectedPriceTableSector})` : 'Imprimir Setor...'}
+                                    <PrinterIcon className="h-4 w-4 mr-1.5 text-slate-500" />
+                                    {selectedPriceTableSector !== 'all' ? `Imprimir (${selectedPriceTableSector})` : 'Imprimir...'}
                                 </button>
                                 <button 
                                     type="button"
                                     onClick={handleTopPdfClick} 
-                                    className="inline-flex items-center px-4 py-2 border border-slate-300 rounded-md shadow-sm text-sm font-medium text-slate-700 bg-white hover:bg-slate-50 transition-colors"
+                                    className="inline-flex items-center px-3.5 py-2 border border-slate-300 rounded-md shadow-2xs text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors"
                                     title={selectedPriceTableSector !== 'all' ? `Exportar PDF somente do setor "${selectedPriceTableSector}"` : "Escolher setor para gerar PDF"}
                                 >
-                                    <FileDownIcon className="h-4 w-4 mr-2 text-slate-500" />
-                                    {selectedPriceTableSector !== 'all' ? `PDF (${selectedPriceTableSector})` : 'Exportar PDF...'}
+                                    <FileDownIcon className="h-4 w-4 mr-1.5 text-slate-500" />
+                                    {selectedPriceTableSector !== 'all' ? `PDF (${selectedPriceTableSector})` : 'PDF...'}
                                 </button>
                                 <button 
                                     type="button"
                                     onClick={handleTopWhatsAppClick} 
-                                    className="inline-flex items-center px-4 py-2 border border-emerald-300 rounded-md shadow-sm text-sm font-medium text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-colors"
+                                    className="inline-flex items-center px-3.5 py-2 border border-emerald-300 rounded-md shadow-2xs text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 transition-colors"
                                     title={selectedPriceTableSector !== 'all' ? `Enviar por WhatsApp somente o setor "${selectedPriceTableSector}"` : "Escolher setor para enviar por WhatsApp"}
                                 >
-                                    <WhatsAppIcon className="h-4 w-4 mr-2 text-emerald-600" />
+                                    <WhatsAppIcon className="h-4 w-4 mr-1.5 text-emerald-600" />
                                     {selectedPriceTableSector !== 'all' ? `WhatsApp (${selectedPriceTableSector})` : 'WhatsApp...'}
                                 </button>
+                            </div>
+                        </div>
+
+                        {/* Barra de alternância rápida de ordenação */}
+                        <div className="pt-2.5 border-t border-slate-200 flex flex-wrap items-center justify-between text-xs text-slate-600 gap-2">
+                            <div className="flex items-center gap-1.5 font-medium">
+                                <span>Classificação ativa:</span>
+                                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 font-semibold border border-blue-200">
+                                    {priceTableSortBy === 'code' ? '🔢 Por Código' : priceTableSortBy === 'internalCode' ? '🏷️ Por Cód. Interno' : '🔤 Por Item (Ordem Alfabética)'}
+                                </span>
+                            </div>
+                            <div className="flex items-center gap-1">
+                                <span className="text-slate-500 mr-1 font-medium">Escolha a ordenação:</span>
+                                <button
+                                    type="button"
+                                    onClick={() => setPriceTableSortBy('name')}
+                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                                        priceTableSortBy === 'name' 
+                                            ? 'bg-blue-600 text-white shadow-xs ring-1 ring-blue-700' 
+                                            : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                                    }`}
+                                >
+                                    🔤 Por Item (Alfabética)
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setPriceTableSortBy('code')}
+                                    className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                                        priceTableSortBy === 'code' 
+                                            ? 'bg-blue-600 text-white shadow-xs ring-1 ring-blue-700' 
+                                            : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                                    }`}
+                                >
+                                    🔢 Por Código
+                                </button>
+                                {quoteSettings.showInternalCodeInPriceTable && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setPriceTableSortBy('internalCode')}
+                                        className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all ${
+                                            priceTableSortBy === 'internalCode' 
+                                                ? 'bg-indigo-600 text-white shadow-xs ring-1 ring-indigo-700' 
+                                                : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-300'
+                                        }`}
+                                    >
+                                        🏷️ Por Cód. Interno
+                                    </button>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -1338,11 +1809,50 @@ const Products: React.FC<ProductsProps> = ({
                                     <thead className="bg-slate-50">
                                         <tr>
                                         {quoteSettings.showImageInPriceTable && <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider w-24">Imagem</th>}
-                                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Código</th>
+                                        <th 
+                                            onClick={() => setPriceTableSortBy('code')}
+                                            className="px-4 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-200/70 transition-colors select-none"
+                                            title="Clique para ordenar por Código"
+                                        >
+                                            <div className="flex items-center gap-1.5">
+                                                <span>Código</span>
+                                                {priceTableSortBy === 'code' ? (
+                                                    <span className="text-blue-600 font-bold text-xs">▲</span>
+                                                ) : (
+                                                    <span className="text-slate-300 hover:text-slate-500 text-xs">↕</span>
+                                                )}
+                                            </div>
+                                        </th>
                                         {quoteSettings.showInternalCodeInPriceTable && (
-                                            <th className="px-4 py-2 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider">Cód. Interno</th>
+                                            <th 
+                                                onClick={() => setPriceTableSortBy('internalCode')}
+                                                className="px-4 py-2 text-left text-xs font-semibold text-indigo-700 uppercase tracking-wider cursor-pointer hover:bg-indigo-50 transition-colors select-none"
+                                                title="Clique para ordenar por Código Interno"
+                                            >
+                                                <div className="flex items-center gap-1.5">
+                                                    <span>Cód. Interno</span>
+                                                    {priceTableSortBy === 'internalCode' ? (
+                                                        <span className="text-indigo-600 font-bold text-xs">▲</span>
+                                                    ) : (
+                                                        <span className="text-indigo-300 hover:text-indigo-500 text-xs">↕</span>
+                                                    )}
+                                                </div>
+                                            </th>
                                         )}
-                                        <th className="px-4 py-2 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">Item</th>
+                                        <th 
+                                            onClick={() => setPriceTableSortBy('name')}
+                                            className="px-4 py-2 text-left text-xs font-semibold text-slate-600 uppercase tracking-wider cursor-pointer hover:bg-slate-200/70 transition-colors select-none"
+                                            title="Clique para ordenar por Item (Ordem Alfabética)"
+                                        >
+                                            <div className="flex items-center gap-1.5">
+                                                <span>Item</span>
+                                                {priceTableSortBy === 'name' ? (
+                                                    <span className="text-blue-600 font-bold text-xs">▲</span>
+                                                ) : (
+                                                    <span className="text-slate-300 hover:text-slate-500 text-xs">↕</span>
+                                                )}
+                                            </div>
+                                        </th>
                                         {quoteSettings.showItemDiscountPercent ? (
                                             <>
                                                 <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Preço de Tabela</th>
@@ -1366,7 +1876,7 @@ const Products: React.FC<ProductsProps> = ({
                                                 {quoteSettings.showImageInPriceTable && (
                                                 <td className="px-4 py-2 whitespace-nowrap">
                                                     {product.image ? (
-                                                    <img src={product.image} alt={product.name} className="h-12 w-12 object-cover rounded-md" />
+                                                    <ProductImageZoom src={product.image} alt={product.name} className="h-12 w-12 object-cover rounded-md" containerClassName="h-12 w-12 relative inline-block" />
                                                     ) : (
                                                     <div className="h-12 w-12 bg-slate-100 rounded-md flex items-center justify-center text-xs text-slate-400">Sem foto</div>
                                                     )}
@@ -1600,8 +2110,167 @@ const Products: React.FC<ProductsProps> = ({
           </div>
         </div>
       )}
+      {/* Modal Interativo de Câmera (Compatível com PC Webcam e Celular) */}
+      {isCameraOpen && (
+        <div className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-3 sm:p-4 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-slate-900 border border-slate-700/80 text-white rounded-2xl max-w-lg w-full overflow-hidden shadow-2xl flex flex-col">
+            {/* Cabeçalho do Modal de Câmera */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-800 bg-slate-950/80">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-blue-600/20 text-blue-400 rounded-xl border border-blue-500/30">
+                  <CameraIcon className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm sm:text-base text-white">Tirar Foto do Produto</h3>
+                  <p className="text-[11px] text-slate-400">Use a câmera do computador ou celular para capturar o item</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleCloseCamera}
+                className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors"
+                title="Fechar câmera"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                  <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Visor da Câmera / Preview */}
+            <div className="relative bg-black flex items-center justify-center aspect-[4/3] sm:aspect-video w-full overflow-hidden select-none">
+              {isCameraLoading && !cameraError && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-slate-400 bg-slate-950 z-10">
+                  <div className="w-8 h-8 border-3 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+                  <span className="text-xs font-medium">Iniciando câmera...</span>
+                </div>
+              )}
+
+              {cameraError ? (
+                <div className="p-6 text-center max-w-sm">
+                  <div className="w-12 h-12 mx-auto mb-3 text-red-400 bg-red-950/60 rounded-full flex items-center justify-center border border-red-800/50">
+                    <CameraIcon className="w-6 h-6" />
+                  </div>
+                  <h4 className="text-sm font-bold text-red-300 mb-1">Acesso à Câmera</h4>
+                  <p className="text-xs text-slate-300 mb-4 leading-relaxed">{cameraError}</p>
+                  <div className="flex flex-col gap-2">
+                    <button
+                      type="button"
+                      onClick={() => startCamera(cameraFacingMode)}
+                      className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded-lg transition-colors"
+                    >
+                      Tentar Novamente
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleCloseCamera();
+                        handleOpenNativeCamera();
+                      }}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium rounded-lg transition-colors border border-slate-700"
+                    >
+                      Abrir Câmera do Sistema / Arquivo
+                    </button>
+                  </div>
+                </div>
+              ) : capturedPhoto ? (
+                <div className="relative w-full h-full bg-black flex items-center justify-center">
+                  <img
+                    src={capturedPhoto}
+                    alt="Foto capturada do produto"
+                    className="max-h-full max-w-full object-contain"
+                  />
+                  <div className="absolute top-3 left-3 bg-black/70 backdrop-blur-xs text-white text-[11px] font-medium px-2.5 py-1 rounded-full flex items-center gap-1.5 border border-white/10 shadow-sm">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                    Foto Capturada
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <video
+                    ref={videoRef}
+                    autoPlay
+                    playsInline
+                    muted
+                    className="w-full h-full object-contain bg-black"
+                  />
+                  {/* Guias do visor */}
+                  <div className="absolute inset-6 pointer-events-none border border-white/25 rounded-2xl flex items-center justify-center">
+                    <span className="text-[11px] text-white/70 bg-black/50 backdrop-blur-xs px-3 py-1 rounded-full border border-white/10">
+                      Enquadre o produto e clique em Capturar
+                    </span>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Barra de Ações do Rodapé */}
+            <div className="p-3.5 sm:p-4 bg-slate-950 border-t border-slate-800 flex items-center justify-between gap-2 sm:gap-3">
+              {capturedPhoto ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleRetakePhoto}
+                    className="px-3.5 py-2.5 rounded-xl border border-slate-700 text-slate-300 hover:bg-slate-800 text-xs font-semibold transition-colors flex items-center gap-1.5"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    <span>Tirar Novamente</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleConfirmCapturedPhoto}
+                    className="flex-1 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs sm:text-sm font-bold transition-all shadow-lg shadow-emerald-900/30 flex items-center justify-center gap-2 active:scale-[0.98]"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                    </svg>
+                    <span>Usar Foto no Produto</span>
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleToggleFacingMode}
+                    disabled={Boolean(cameraError)}
+                    className="p-2.5 rounded-xl border border-slate-800 hover:bg-slate-800 text-slate-300 text-xs font-medium transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                    title="Alternar entre câmera frontal e traseira"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                    </svg>
+                    <span className="hidden sm:inline">Trocar Câmera</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCapturePhoto}
+                    disabled={Boolean(cameraError) || isCameraLoading}
+                    className="flex-1 max-w-xs mx-auto py-2.5 px-6 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs sm:text-sm font-bold shadow-lg shadow-blue-900/40 flex items-center justify-center gap-2 transition-transform active:scale-95 disabled:opacity-50"
+                  >
+                    <CameraIcon className="w-5 h-5 text-white" />
+                    <span>Capturar Foto</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleCloseCamera}
+                    className="px-3 py-2.5 text-xs text-slate-400 hover:text-white transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+
 };
 
 export default Products;
