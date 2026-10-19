@@ -68,19 +68,17 @@ export const signInWithGoogle = async (options?: { forceSelectAccount?: boolean 
     cachedAccessToken = credential.accessToken;
     return { user: result.user, accessToken: cachedAccessToken };
   } catch (error: any) {
-    console.error('Erro no login com Google:', error);
-    if (error.code === 'auth/popup-closed-by-user') {
-      throw new Error('A janela de login com o Google foi fechada antes de selecionar a conta.');
+    // Normal user cancellation: user closed popup or switched away
+    if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') {
+      return null;
     }
-    if (error.code === 'auth/popup-blocked') {
+    if (error?.code === 'auth/popup-blocked') {
       throw new Error('O navegador bloqueou a janela pop-up do Google. Permita pop-ups para este site para fazer login.');
     }
-    if (error.code === 'auth/cancelled-popup-request') {
-      throw new Error('Operação de login cancelada.');
-    }
-    if (error.message && (error.message.includes('access_denied') || error.message.includes('403'))) {
+    if (error?.message && (error.message.includes('access_denied') || error.message.includes('403'))) {
       throw new Error('Acesso negado pelo Google (403 / access_denied). Se o projeto estiver em modo de teste no Google Cloud Console, o e-mail deste usuário deve ser cadastrado na lista de "Usuários de teste" da tela de consentimento OAuth.');
     }
+    console.warn('Aviso no login com Google:', error?.message || error);
     throw error;
   } finally {
     isSigningIn = false;

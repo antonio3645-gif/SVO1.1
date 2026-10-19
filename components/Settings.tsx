@@ -140,9 +140,6 @@ const Settings: React.FC<SettingsProps> = ({
   const [sharedUrlInput, setSharedUrlInput] = useState<string>(() => getSharedSpreadsheetUrl() || '');
   const [isSavingSharedSheet, setIsSavingSharedSheet] = useState(false);
   const [showMultiUserHelp, setShowMultiUserHelp] = useState(false);
-  const [customSegmentInput, setCustomSegmentInput] = useState(customSegmentName);
-  const [pendingSegmentId, setPendingSegmentId] = useState<string | null>(null);
-  const [showSegmentDetails, setShowSegmentDetails] = useState(false);
   const [localCompanyInfo, setLocalCompanyInfo] = useState<CompanyInfo>({
     name: '',
     cnpj: '',
@@ -1344,9 +1341,10 @@ const Settings: React.FC<SettingsProps> = ({
                             setCloudDbFeedback(null);
                             try {
                               await onSwitchGoogleAccount();
-                              setCloudDbFeedback({ type: 'success', message: 'Conta alternada com sucesso! Os dados deste profissional foram carregados do banco isolado.' });
                             } catch (err: any) {
-                              setCloudDbFeedback({ type: 'error', message: err.message || 'Erro ao trocar conta Google.' });
+                              if (err?.code !== 'auth/popup-closed-by-user' && err?.code !== 'auth/cancelled-popup-request') {
+                                setCloudDbFeedback({ type: 'error', message: err.message || 'Erro ao trocar conta Google.' });
+                              }
                             } finally {
                               setIsSwitchingGoogle(false);
                             }
@@ -1388,9 +1386,10 @@ const Settings: React.FC<SettingsProps> = ({
                           setCloudDbFeedback(null);
                           try {
                             await onConnectGoogle();
-                            setCloudDbFeedback({ type: 'success', message: 'Conta conectada com sucesso! O banco de dados isolado na nuvem está ativo.' });
                           } catch (err: any) {
-                            setCloudDbFeedback({ type: 'error', message: err.message || 'Erro ao conectar conta Google.' });
+                            if (err?.code !== 'auth/popup-closed-by-user' && err?.code !== 'auth/cancelled-popup-request') {
+                              setCloudDbFeedback({ type: 'error', message: err.message || 'Erro ao conectar conta Google.' });
+                            }
                           } finally {
                             setIsConnectingGoogle(false);
                           }
@@ -1539,326 +1538,7 @@ const Settings: React.FC<SettingsProps> = ({
               )}
             </div>
 
-            {/* Bloco 2: Escolha e Personalização do Segmento Profissional */}
-            <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <h4 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                    <Briefcase className="w-5 h-5 text-emerald-600" />
-                    Segmento Profissional & Serviços Personalizados
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    Cada usuário escolhe sua área de atuação (mecânico, eletricista, encanador, etc.) e personaliza seus próprios serviços e preços.
-                  </p>
-                </div>
 
-                {/* Segmento Ativo Atual */}
-                {(() => {
-                  const currentSeg = getSegmentById(professionalSegment);
-                  const activeName = professionalSegment === 'personalizado' && customSegmentName ? customSegmentName : currentSeg.name;
-                  return (
-                    <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-amber-50 border border-amber-300 text-amber-950 rounded-xl text-xs font-bold shadow-xs">
-                      <span className="text-base">{currentSeg.icon}</span>
-                      <span>{activeName}</span>
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {/* Grade de Segmentos */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pt-2">
-                {PROFESSIONAL_SEGMENTS.map((seg) => {
-                  const isSelected = professionalSegment === seg.id;
-                  return (
-                    <button
-                      key={seg.id}
-                      type="button"
-                      onClick={() => {
-                        setPendingSegmentId(seg.id);
-                        if (seg.id === 'personalizado') {
-                          if (onSelectSegment) {
-                            onSelectSegment('personalizado', false, customSegmentInput);
-                          }
-                        }
-                      }}
-                      className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between gap-2 ${
-                        isSelected
-                          ? 'border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-500/25 shadow-xs'
-                          : 'border-slate-200 hover:border-emerald-300 hover:bg-slate-50/70'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-2xl">{seg.icon}</span>
-                        {isSelected && (
-                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 ring-2 ring-emerald-200"></span>
-                        )}
-                      </div>
-                      <div>
-                        <div className="font-bold text-xs text-slate-900 leading-tight">
-                          {seg.id === 'personalizado' && customSegmentName ? customSegmentName : seg.name.split('/')[0].trim()}
-                        </div>
-                        <span className="text-[10px] text-slate-500 block mt-0.5">
-                          {seg.category}
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Painel de Ação para o Segmento Selecionado / Pendente */}
-              {pendingSegmentId && pendingSegmentId !== 'personalizado' && (() => {
-                const pendingSeg = getSegmentById(pendingSegmentId);
-                return (
-                  <div className="mt-3 p-4 bg-gradient-to-br from-emerald-50/70 to-teal-50/70 border border-emerald-200 rounded-xl space-y-3 animate-in fade-in duration-200">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="text-2xl">{pendingSeg.icon}</span>
-                        <div>
-                          <h5 className="text-xs font-bold text-emerald-950">
-                            {pendingSeg.name}
-                          </h5>
-                          <p className="text-[11px] text-slate-600">
-                            {pendingSeg.description}
-                          </p>
-                        </div>
-                      </div>
-                      <span className="text-[11px] font-semibold text-emerald-800 bg-white/80 px-2.5 py-1 rounded-lg border border-emerald-200">
-                        {pendingSeg.presetServices.length} Serviços Pré-configurados
-                      </span>
-                    </div>
-
-                    {/* Prévia dos Serviços Sugeridos */}
-                    <div className="bg-white/80 p-3 rounded-lg border border-emerald-100 max-h-36 overflow-y-auto space-y-1.5 text-[11px]">
-                      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
-                        Exemplos de Serviços e Preços Sugeridos:
-                      </div>
-                      {pendingSeg.presetServices.slice(0, 4).map((svc, idx) => (
-                        <div key={idx} className="flex items-center justify-between text-slate-700 py-0.5 border-b border-slate-100 last:border-0">
-                          <span className="font-medium">• {svc.name}</span>
-                          <span className="font-bold text-emerald-700">R$ {svc.sellPrice.toFixed(2)}</span>
-                        </div>
-                      ))}
-                      {pendingSeg.presetServices.length > 4 && (
-                        <div className="text-[10px] text-slate-400 italic">
-                          + {pendingSeg.presetServices.length - 4} outros serviços e setores ({pendingSeg.defaultSectors.join(', ')})
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Botões de Decisão */}
-                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-1">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onSelectSegment) {
-                            onSelectSegment(pendingSeg.id, false);
-                          }
-                          setPendingSegmentId(null);
-                          setCloudDbFeedback({
-                            type: 'success',
-                            message: `✅ Segmento alterado para ${pendingSeg.name}. Seus serviços e produtos atuais foram preservados.`
-                          });
-                        }}
-                        className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition"
-                      >
-                        Apenas Mudar Segmento (Manter meus itens)
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onSelectSegment) {
-                            onSelectSegment(pendingSeg.id, true);
-                          }
-                          setPendingSegmentId(null);
-                          setCloudDbFeedback({
-                            type: 'success',
-                            message: `✅ Segmento ${pendingSeg.name} ativado com pacote de ${pendingSeg.presetServices.length} serviços sugeridos e setores adicionados! Você pode personalizar todos os preços na aba de Produtos.`
-                          });
-                        }}
-                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition shadow-xs"
-                      >
-                        <Sparkles className="w-3.5 h-3.5" />
-                        Carregar Serviços & Preços Sugeridos
-                      </button>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              {/* Se segmento personalizado selecionado */}
-              {professionalSegment === 'personalizado' && (
-                <div className="mt-3 p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2 animate-in fade-in duration-200">
-                  <label htmlFor="customSegmentInput" className="block text-xs font-bold text-slate-700">
-                    Nome da sua Especialidade ou Segmento Profissional:
-                  </label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      id="customSegmentInput"
-                      type="text"
-                      value={customSegmentInput}
-                      onChange={(e) => setCustomSegmentInput(e.target.value)}
-                      placeholder="Ex: Marcenaria de Luxo, Eletrotécnica, CFTV, Jardinagem..."
-                      className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (onSelectSegment) {
-                          onSelectSegment('personalizado', false, customSegmentInput);
-                        }
-                        setCloudDbFeedback({
-                          type: 'success',
-                          message: `✅ Segmento personalizado salvo como "${customSegmentInput || 'Personalizado'}".`
-                        });
-                      }}
-                      className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition shadow-xs whitespace-nowrap"
-                    >
-                      Salvar Especialidade
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Bloco 2: Modo de Planilha (Individual vs Compartilhada para Equipe) */}
-            <div className="bg-white p-4 sm:p-5 rounded-xl border border-emerald-100 shadow-xs space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                <div>
-                  <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                    <Share2 className="w-4 h-4 text-emerald-600" />
-                    Destino dos Dados: Individual ou Compartilhada da Empresa
-                  </h4>
-                  <p className="text-xs text-slate-500">
-                    Escolha se os dados salvos vão para o Google Drive pessoal de cada um ou para uma planilha compartilhada por toda a equipe.
-                  </p>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                {/* Opção A: Pessoal */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSpreadsheetMode('personal');
-                    setSpreadsheetModeState('personal');
-                    clearSharedSpreadsheet();
-                    if (onUpdateSpreadsheetUrl) {
-                      onUpdateSpreadsheetUrl(getSavedSpreadsheetUrl(googleUser?.uid));
-                    }
-                    setGoogleFeedback({
-                      type: 'success',
-                      message: 'Modo alterado para Planilha Própria (Google Drive pessoal).'
-                    });
-                  }}
-                  className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                    spreadsheetMode === 'personal'
-                      ? 'border-emerald-500 bg-emerald-50/80 ring-2 ring-emerald-500/20'
-                      : 'border-slate-200 hover:border-slate-300 bg-white'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                      <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
-                      Minha Planilha Própria
-                    </span>
-                    {spreadsheetMode === 'personal' && (
-                      <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-500 leading-normal">
-                    Cada pessoa que fizer login cria e alimenta automaticamente sua própria planilha no seu Google Drive pessoal.
-                  </p>
-                </button>
-
-                {/* Opção B: Compartilhada */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSpreadsheetMode('shared');
-                    setSpreadsheetModeState('shared');
-                  }}
-                  className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between ${
-                    spreadsheetMode === 'shared'
-                      ? 'border-emerald-500 bg-emerald-50/80 ring-2 ring-emerald-500/20'
-                      : 'border-slate-200 hover:border-slate-300 bg-white'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
-                      <Users className="w-3.5 h-3.5 text-emerald-600" />
-                      Planilha Compartilhada da Empresa
-                    </span>
-                    {spreadsheetMode === 'shared' && (
-                      <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-500 leading-normal">
-                    Todos os colaboradores com contas Google diferentes salvam juntos na mesma planilha centralizada.
-                  </p>
-                </button>
-              </div>
-
-              {/* Input para Link da Planilha Compartilhada quando modo Compartilhado */}
-              {spreadsheetMode === 'shared' && (
-                <div className="pt-3 border-t border-slate-100 space-y-2.5 animate-in fade-in duration-150">
-                  <label htmlFor="sharedSheetInput" className="block text-xs font-bold text-slate-700">
-                    Link ou ID da Planilha Central do Google Sheets:
-                  </label>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <input
-                      id="sharedSheetInput"
-                      type="text"
-                      value={sharedUrlInput}
-                      onChange={(e) => setSharedUrlInput(e.target.value)}
-                      placeholder="https://docs.google.com/spreadsheets/d/.../edit"
-                      className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
-                    />
-                    <button
-                      type="button"
-                      disabled={isSavingSharedSheet}
-                      onClick={async () => {
-                        if (!sharedUrlInput.trim()) {
-                          clearSharedSpreadsheet();
-                          setSpreadsheetModeState('personal');
-                          if (onUpdateSpreadsheetUrl) {
-                            onUpdateSpreadsheetUrl(getSavedSpreadsheetUrl(googleUser?.uid));
-                          }
-                          setGoogleFeedback({ type: 'success', message: 'Configurado para usar planilha própria.' });
-                          return;
-                        }
-                        try {
-                          setIsSavingSharedSheet(true);
-                          const { url } = setSharedSpreadsheet(sharedUrlInput);
-                          if (onUpdateSpreadsheetUrl) {
-                            onUpdateSpreadsheetUrl(url);
-                          }
-                          setGoogleFeedback({
-                            type: 'success',
-                            message: '✅ Planilha compartilhada conectada com sucesso! Qualquer usuário com permissão de Editor salvará nesta planilha.'
-                          });
-                        } catch (err: any) {
-                          setGoogleFeedback({
-                            type: 'error',
-                            message: err.message || 'Erro ao configurar planilha compartilhada.'
-                          });
-                        } finally {
-                          setIsSavingSharedSheet(false);
-                        }
-                      }}
-                      className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 rounded-xl transition shadow-xs whitespace-nowrap"
-                    >
-                      {isSavingSharedSheet ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar Planilha da Equipe'}
-                    </button>
-                  </div>
-                  <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
-                    <Info className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
-                    Lembre-se de clicar em <strong>"Compartilhar"</strong> no Google Drive e adicionar os e-mails dos outros colaboradores como <strong>Editor</strong>.
-                  </p>
-                </div>
-              )}
-            </div>
 
             {/* Bloco 3: Ações e Acesso Direto à Planilha Ativa */}
             {googleUser && (

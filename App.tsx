@@ -232,12 +232,19 @@ const App: React.FC = () => {
       if (result) {
         setGoogleUser(result.user);
         setGoogleAccessToken(result.accessToken);
-        // Automatically ensure or find spreadsheet for this user's Google Drive
-        const sheet = await ensureDatabaseSpreadsheet(result.accessToken, result.user.uid);
-        setSpreadsheetUrl(sheet.url);
+        // Automatically ensure or find spreadsheet for this user's Google Drive if available
+        try {
+          const sheet = await ensureDatabaseSpreadsheet(result.accessToken, result.user.uid);
+          setSpreadsheetUrl(sheet.url);
+        } catch (sheetErr) {
+          console.warn('Planilha do Google Drive não vinculada (utilizando banco Firestore isolado):', sheetErr);
+        }
       }
     } catch (err: any) {
-      console.error('Falha ao autenticar com Google:', err);
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        return;
+      }
+      console.warn('Aviso ao autenticar com Google:', err?.message || err);
       throw err;
     }
   };
@@ -248,11 +255,18 @@ const App: React.FC = () => {
       if (result) {
         setGoogleUser(result.user);
         setGoogleAccessToken(result.accessToken);
-        const sheet = await ensureDatabaseSpreadsheet(result.accessToken, result.user.uid);
-        setSpreadsheetUrl(sheet.url);
+        try {
+          const sheet = await ensureDatabaseSpreadsheet(result.accessToken, result.user.uid);
+          setSpreadsheetUrl(sheet.url);
+        } catch (sheetErr) {
+          console.warn('Planilha do Google Drive não vinculada (utilizando banco Firestore isolado):', sheetErr);
+        }
       }
     } catch (err: any) {
-      console.error('Falha ao trocar conta Google:', err);
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        return;
+      }
+      console.warn('Aviso ao trocar conta Google:', err?.message || err);
       throw err;
     }
   };
@@ -1556,39 +1570,20 @@ const App: React.FC = () => {
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                         Banco Local
                       </span>
-                      {/* Badge do Segmento Profissional */}
-                      {(() => {
-                        const seg = getSegmentById(professionalSegment);
-                        const displayName = professionalSegment === 'personalizado' && customSegmentName ? customSegmentName : seg.name.split('/')[0].trim();
-                        return (
-                          <button
-                            type="button"
-                            onClick={() => setActiveTab('settings')}
-                            className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100 transition shadow-xs"
-                            title={`Segmento Profissional: ${seg.name}. Clique para personalizar serviços e preços.`}
-                          >
-                            <span>{seg.icon}</span>
-                            <span>{displayName}</span>
-                          </button>
-                        );
-                      })()}
 
-                      {googleUser ? (
-                        <a
-                          href={spreadsheetUrl || '#'}
-                          target={spreadsheetUrl ? '_blank' : undefined}
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition shadow-xs"
-                          title={`Conectado como ${googleUser.email || googleUser.displayName}. Clique para abrir a planilha.`}
+                      {googleUser && (
+                        <span
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 shadow-xs"
+                          title={`Conectado como ${googleUser.email || googleUser.displayName}`}
                         >
                           {googleUser.photoURL ? (
                             <img src={googleUser.photoURL} alt="" className="w-3.5 h-3.5 rounded-full object-cover" />
                           ) : (
                             <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                           )}
-                          <span>Planilha ({googleUser.displayName?.split(' ')[0] || googleUser.email?.split('@')[0]})</span>
-                        </a>
-                      ) : null}
+                          <span>{googleUser.displayName?.split(' ')[0] || googleUser.email?.split('@')[0]}</span>
+                        </span>
+                      )}
                     </div>
                     
                     <div className="flex items-center gap-2 w-full sm:w-auto">
