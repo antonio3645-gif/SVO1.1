@@ -17,6 +17,7 @@ import { db, doc, setDoc, getDoc, onSnapshot, ensureAuth } from './firebase';
 import { 
   initGoogleAuth, 
   signInWithGoogle, 
+  switchGoogleAccount,
   logoutGoogle, 
   getGoogleAccessToken,
   setCachedGoogleAccessToken 
@@ -89,7 +90,7 @@ const App: React.FC = () => {
       (user, token) => {
         setGoogleUser(user);
         setGoogleAccessToken(token);
-        const url = getSavedSpreadsheetUrl();
+        const url = getSavedSpreadsheetUrl(user.uid);
         if (url) setSpreadsheetUrl(url);
       },
       () => {
@@ -102,12 +103,12 @@ const App: React.FC = () => {
 
   const handleConnectGoogle = async () => {
     try {
-      const result = await signInWithGoogle();
+      const result = await signInWithGoogle({ forceSelectAccount: true });
       if (result) {
         setGoogleUser(result.user);
         setGoogleAccessToken(result.accessToken);
-        // Automatically ensure or find spreadsheet on first login
-        const sheet = await ensureDatabaseSpreadsheet(result.accessToken);
+        // Automatically ensure or find spreadsheet for this user's Google Drive
+        const sheet = await ensureDatabaseSpreadsheet(result.accessToken, result.user.uid);
         setSpreadsheetUrl(sheet.url);
       }
     } catch (err: any) {
@@ -116,21 +117,40 @@ const App: React.FC = () => {
     }
   };
 
+  const handleSwitchGoogleAccount = async () => {
+    try {
+      const result = await switchGoogleAccount();
+      if (result) {
+        setGoogleUser(result.user);
+        setGoogleAccessToken(result.accessToken);
+        const sheet = await ensureDatabaseSpreadsheet(result.accessToken, result.user.uid);
+        setSpreadsheetUrl(sheet.url);
+      }
+    } catch (err: any) {
+      console.error('Falha ao trocar conta Google:', err);
+      throw err;
+    }
+  };
+
   const handleDisconnectGoogle = async () => {
     await logoutGoogle();
     setGoogleUser(null);
     setGoogleAccessToken(null);
+    setSpreadsheetUrl(null);
   };
 
   const handleSyncAllToGoogleSheets = async () => {
     if (!googleAccessToken) {
       throw new Error('Conta Google não conectada. Conecte sua conta primeiro.');
     }
-    const result = await fullSyncToGoogleSheet(googleAccessToken, clients, products, savedQuotes);
+    const currentUid = googleUser?.uid;
+    const result = await fullSyncToGoogleSheet(googleAccessToken, clients, products, savedQuotes, currentUid);
     setSpreadsheetUrl(result.url);
     return {
       success: true,
-      message: '✅ Todos os produtos, clientes e orçamentos foram sincronizados com sucesso para a planilha!',
+      message: result.isShared
+        ? '✅ Todos os produtos, clientes e orçamentos foram sincronizados com sucesso para a planilha compartilhada da empresa!'
+        : '✅ Todos os produtos, clientes e orçamentos foram sincronizados com sucesso para a sua planilha do Google Drive!',
       url: result.url
     };
   };
@@ -660,7 +680,7 @@ const App: React.FC = () => {
     // Auto-save new client to Google Sheets in the user's Google Drive
     const token = googleAccessToken || getGoogleAccessToken();
     if (token) {
-      appendClientToGoogleSheet(token, newClient).catch((err) => {
+      appendClientToGoogleSheet(token, newClient, googleUser?.uid).catch((err) => {
         console.warn('Não foi possível adicionar cliente à planilha Google:', err);
       });
     }
@@ -697,7 +717,7 @@ const App: React.FC = () => {
     // Auto-save new product to Google Sheets in the user's Google Drive
     const token = googleAccessToken || getGoogleAccessToken();
     if (token) {
-      appendProductsToGoogleSheet(token, [newProduct]).catch((err) => {
+      appendProductsToGoogleSheet(token, [newProduct], googleUser?.uid).catch((err) => {
         console.warn('Não foi possível adicionar produto à planilha Google:', err);
       });
     }
@@ -719,7 +739,7 @@ const App: React.FC = () => {
       // Auto-save imported products to Google Sheets in the user's Google Drive
       const token = googleAccessToken || getGoogleAccessToken();
       if (token) {
-        appendProductsToGoogleSheet(token, productsWithIds).catch((err) => {
+        appendProductsToGoogleSheet(token, productsWithIds, googleUser?.uid).catch((err) => {
           console.warn('Não foi possível adicionar produtos importados à planilha Google:', err);
         });
       }
@@ -806,7 +826,7 @@ const App: React.FC = () => {
     // Auto-save new quote (with client name and all product items) to Google Sheets in the user's Google Drive
     const token = googleAccessToken || getGoogleAccessToken();
     if (token) {
-      appendQuoteToGoogleSheet(token, newQuote).catch((err) => {
+      appendQuoteToGoogleSheet(token, newQuote, googleUser?.uid).catch((err) => {
         console.warn('Não foi possível salvar o orçamento na planilha Google:', err);
       });
     }
@@ -1132,8 +1152,10 @@ const App: React.FC = () => {
                     googleAccessToken={googleAccessToken}
                     spreadsheetUrl={spreadsheetUrl}
                     onConnectGoogle={handleConnectGoogle}
+                    onSwitchGoogleAccount={handleSwitchGoogleAccount}
                     onDisconnectGoogle={handleDisconnectGoogle}
                     onSyncAllToGoogleSheets={handleSyncAllToGoogleSheets}
+                    onUpdateSpreadsheetUrl={setSpreadsheetUrl}
                 />;
       default:
         return null;
@@ -1271,11 +1293,15 @@ const App: React.FC = () => {
                           href={spreadsheetUrl || '#'}
                           target={spreadsheetUrl ? '_blank' : undefined}
                           rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 transition"
-                          title="Planilha sincronizada e salva no Google Drive"
+                          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100 transition shadow-xs"
+                          title={`Conectado como ${googleUser.email || googleUser.displayName}. Clique para abrir a planilha.`}
                         >
-                          <span className="w-2 h-2 rounded-full bg-blue-500"></span>
-                          Google Sheets Conectado
+                          {googleUser.photoURL ? (
+                            <img src={googleUser.photoURL} alt="" className="w-3.5 h-3.5 rounded-full object-cover" />
+                          ) : (
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                          )}
+                          <span>Planilha ({googleUser.displayName?.split(' ')[0] || googleUser.email?.split('@')[0]})</span>
                         </a>
                       ) : null}
                     </div>

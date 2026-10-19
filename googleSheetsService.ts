@@ -2,23 +2,95 @@ import type { Client, Product, SavedQuote } from './types';
 
 const SPREADSHEET_ID_KEY = 'svo_google_spreadsheet_id';
 const SPREADSHEET_URL_KEY = 'svo_google_spreadsheet_url';
+const SPREADSHEET_MODE_KEY = 'svo_spreadsheet_mode'; // 'personal' | 'shared'
+const SHARED_SPREADSHEET_ID_KEY = 'svo_shared_team_spreadsheet_id';
+const SHARED_SPREADSHEET_URL_KEY = 'svo_shared_team_spreadsheet_url';
 
-export const getSavedSpreadsheetId = (): string | null => {
+export const extractSpreadsheetId = (input: string): string => {
+  const trimmed = input.trim();
+  const match = trimmed.match(/\/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+  if (match && match[1]) {
+    return match[1];
+  }
+  return trimmed;
+};
+
+export const getSpreadsheetMode = (): 'personal' | 'shared' => {
+  return (localStorage.getItem(SPREADSHEET_MODE_KEY) as 'personal' | 'shared') || 'personal';
+};
+
+export const setSpreadsheetMode = (mode: 'personal' | 'shared') => {
+  localStorage.setItem(SPREADSHEET_MODE_KEY, mode);
+};
+
+export const getSharedSpreadsheetId = (): string | null => {
+  return localStorage.getItem(SHARED_SPREADSHEET_ID_KEY);
+};
+
+export const getSharedSpreadsheetUrl = (): string | null => {
+  return localStorage.getItem(SHARED_SPREADSHEET_URL_KEY);
+};
+
+export const setSharedSpreadsheet = (urlOrId: string): { id: string; url: string } => {
+  const id = extractSpreadsheetId(urlOrId);
+  if (!id || id.length < 5) {
+    throw new Error('ID ou link da planilha inválido. Cole a URL completa da planilha do Google.');
+  }
+  const url = `https://docs.google.com/spreadsheets/d/${id}/edit`;
+  localStorage.setItem(SHARED_SPREADSHEET_ID_KEY, id);
+  localStorage.setItem(SHARED_SPREADSHEET_URL_KEY, url);
+  setSpreadsheetMode('shared');
+  return { id, url };
+};
+
+export const clearSharedSpreadsheet = () => {
+  localStorage.removeItem(SHARED_SPREADSHEET_ID_KEY);
+  localStorage.removeItem(SHARED_SPREADSHEET_URL_KEY);
+  setSpreadsheetMode('personal');
+};
+
+export const getSavedSpreadsheetId = (userId?: string): string | null => {
+  const mode = getSpreadsheetMode();
+  if (mode === 'shared') {
+    const sharedId = getSharedSpreadsheetId();
+    if (sharedId) return sharedId;
+  }
+  if (userId) {
+    const userSpecific = localStorage.getItem(`${SPREADSHEET_ID_KEY}_${userId}`);
+    if (userSpecific) return userSpecific;
+  }
   return localStorage.getItem(SPREADSHEET_ID_KEY);
 };
 
-export const getSavedSpreadsheetUrl = (): string | null => {
+export const getSavedSpreadsheetUrl = (userId?: string): string | null => {
+  const mode = getSpreadsheetMode();
+  if (mode === 'shared') {
+    const sharedUrl = getSharedSpreadsheetUrl();
+    if (sharedUrl) return sharedUrl;
+  }
+  if (userId) {
+    const userSpecific = localStorage.getItem(`${SPREADSHEET_URL_KEY}_${userId}`);
+    if (userSpecific) return userSpecific;
+  }
   return localStorage.getItem(SPREADSHEET_URL_KEY);
 };
 
-export const saveSpreadsheetInfo = (id: string, url: string) => {
+export const saveSpreadsheetInfo = (id: string, url: string, userId?: string) => {
   localStorage.setItem(SPREADSHEET_ID_KEY, id);
   localStorage.setItem(SPREADSHEET_URL_KEY, url);
+  if (userId) {
+    localStorage.setItem(`${SPREADSHEET_ID_KEY}_${userId}`, id);
+    localStorage.setItem(`${SPREADSHEET_URL_KEY}_${userId}`, url);
+  }
 };
 
-export const clearSpreadsheetInfo = () => {
+export const clearSpreadsheetInfo = (userId?: string) => {
   localStorage.removeItem(SPREADSHEET_ID_KEY);
   localStorage.removeItem(SPREADSHEET_URL_KEY);
+  if (userId) {
+    localStorage.removeItem(`${SPREADSHEET_ID_KEY}_${userId}`);
+    localStorage.removeItem(`${SPREADSHEET_URL_KEY}_${userId}`);
+  }
 };
 
 /**
@@ -69,7 +141,7 @@ export const findExistingSpreadsheet = async (accessToken: string): Promise<{ id
  * 2. "Clientes"
  * 3. "Orçamentos & Itens"
  */
-export const createDatabaseSpreadsheet = async (accessToken: string): Promise<{ id: string; url: string }> => {
+export const createDatabaseSpreadsheet = async (accessToken: string, userId?: string): Promise<{ id: string; url: string; isShared: boolean }> => {
   const spreadsheetResource = {
     properties: {
       title: 'SVO - Banco de Dados',
@@ -122,9 +194,9 @@ export const createDatabaseSpreadsheet = async (accessToken: string): Promise<{ 
 
   // Write headers to each tab
   await initializeSpreadsheetHeaders(spreadsheetId, accessToken);
-  saveSpreadsheetInfo(spreadsheetId, spreadsheetUrl);
+  saveSpreadsheetInfo(spreadsheetId, spreadsheetUrl, userId);
 
-  return { id: spreadsheetId, url: spreadsheetUrl };
+  return { id: spreadsheetId, url: spreadsheetUrl, isShared: false };
 };
 
 /**
@@ -178,7 +250,7 @@ export const initializeSpreadsheetHeaders = async (spreadsheetId: string, access
 
   const data = [
     {
-      range: "'Produtos & Serviços'!A1:I1",
+      range: "'Produtos & Serviços'!A1:K1",
       values: [productsHeader],
     },
     {
@@ -206,13 +278,49 @@ export const initializeSpreadsheetHeaders = async (spreadsheetId: string, access
 
 /**
  * Ensures a valid spreadsheet exists or creates one.
+ * Supports both shared company spreadsheets (multi-users) and personal Google Drive spreadsheets.
  */
-export const ensureDatabaseSpreadsheet = async (accessToken: string): Promise<{ id: string; url: string }> => {
-  let savedId = getSavedSpreadsheetId();
-  let savedUrl = getSavedSpreadsheetUrl();
+export const ensureDatabaseSpreadsheet = async (
+  accessToken: string,
+  userId?: string
+): Promise<{ id: string; url: string; isShared: boolean }> => {
+  const mode = getSpreadsheetMode();
+  const sharedId = getSharedSpreadsheetId();
 
-  if (savedId) {
-    // Verify it still exists in Google Drive
+  // 1. If configured in shared team spreadsheet mode
+  if (mode === 'shared' && sharedId) {
+    try {
+      const verifyRes = await fetch(`https://www.googleapis.com/drive/v3/files/${sharedId}?fields=id,name,webViewLink,trashed`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (verifyRes.ok) {
+        const file = await verifyRes.json();
+        if (!file.trashed) {
+          const url = file.webViewLink || getSharedSpreadsheetUrl() || `https://docs.google.com/spreadsheets/d/${sharedId}/edit`;
+          // Attempt initializing headers if needed
+          try {
+            await initializeSpreadsheetHeaders(sharedId, accessToken);
+          } catch {
+            // Sheet might already be structured
+          }
+          return { id: sharedId, url, isShared: true };
+        }
+      } else if (verifyRes.status === 403 || verifyRes.status === 404) {
+        throw new Error('A planilha compartilhada não foi encontrada ou esta conta Google não possui permissão. Verifique se o proprietário compartilhou a planilha com seu e-mail como Editor.');
+      }
+    } catch (err: any) {
+      if (err.message && err.message.includes('permissão')) {
+        throw err;
+      }
+      console.warn('Aviso ao verificar planilha compartilhada:', err);
+    }
+  }
+
+  // 2. Personal spreadsheet mode: check user-scoped saved ID
+  let savedId = getSavedSpreadsheetId(userId);
+  let savedUrl = getSavedSpreadsheetUrl(userId);
+
+  if (savedId && savedId !== sharedId) {
     try {
       const verifyRes = await fetch(`https://www.googleapis.com/drive/v3/files/${savedId}?fields=id,name,webViewLink,trashed`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -221,25 +329,25 @@ export const ensureDatabaseSpreadsheet = async (accessToken: string): Promise<{ 
         const file = await verifyRes.json();
         if (!file.trashed) {
           const url = file.webViewLink || savedUrl || `https://docs.google.com/spreadsheets/d/${savedId}/edit`;
-          saveSpreadsheetInfo(savedId, url);
-          return { id: savedId, url };
+          saveSpreadsheetInfo(savedId, url, userId);
+          return { id: savedId, url, isShared: false };
         }
       }
     } catch {
-      // Ignored, proceed to search or create
+      // Continue to search or create
     }
   }
 
-  // Look for existing spreadsheet with matching name
+  // 3. Search this user's Google Drive for an existing "SVO - Banco de Dados"
   const existing = await findExistingSpreadsheet(accessToken);
   if (existing) {
     const url = existing.webViewLink || `https://docs.google.com/spreadsheets/d/${existing.id}/edit`;
-    saveSpreadsheetInfo(existing.id, url);
-    return { id: existing.id, url };
+    saveSpreadsheetInfo(existing.id, url, userId);
+    return { id: existing.id, url, isShared: false };
   }
 
-  // Otherwise create new one
-  return await createDatabaseSpreadsheet(accessToken);
+  // 4. Otherwise create a new spreadsheet in this user's Google Drive
+  return await createDatabaseSpreadsheet(accessToken, userId);
 };
 
 /**
@@ -247,10 +355,11 @@ export const ensureDatabaseSpreadsheet = async (accessToken: string): Promise<{ 
  */
 export const appendProductsToGoogleSheet = async (
   accessToken: string,
-  products: Product[]
+  products: Product[],
+  userId?: string
 ): Promise<void> => {
   if (products.length === 0) return;
-  const { id: spreadsheetId } = await ensureDatabaseSpreadsheet(accessToken);
+  const { id: spreadsheetId } = await ensureDatabaseSpreadsheet(accessToken, userId);
   const now = new Date().toLocaleString('pt-BR');
 
   const rows = products.map(p => {
@@ -289,9 +398,10 @@ export const appendProductsToGoogleSheet = async (
  */
 export const appendClientToGoogleSheet = async (
   accessToken: string,
-  client: Client
+  client: Client,
+  userId?: string
 ): Promise<void> => {
-  const { id: spreadsheetId } = await ensureDatabaseSpreadsheet(accessToken);
+  const { id: spreadsheetId } = await ensureDatabaseSpreadsheet(accessToken, userId);
   const now = new Date().toLocaleString('pt-BR');
 
   const row = [
@@ -326,9 +436,10 @@ export const appendClientToGoogleSheet = async (
  */
 export const appendQuoteToGoogleSheet = async (
   accessToken: string,
-  quote: SavedQuote
+  quote: SavedQuote,
+  userId?: string
 ): Promise<void> => {
-  const { id: spreadsheetId } = await ensureDatabaseSpreadsheet(accessToken);
+  const { id: spreadsheetId } = await ensureDatabaseSpreadsheet(accessToken, userId);
   const quoteDate = quote.createdAt ? new Date(quote.createdAt).toLocaleString('pt-BR') : new Date().toLocaleString('pt-BR');
   const quoteNumber = String(quote.number || 1).padStart(4, '0');
   const clientName = quote.client?.name || 'Cliente Avulso';
@@ -376,9 +487,10 @@ export const fullSyncToGoogleSheet = async (
   accessToken: string,
   clients: Client[],
   products: Product[],
-  savedQuotes: SavedQuote[]
-): Promise<{ id: string; url: string }> => {
-  const { id: spreadsheetId, url } = await ensureDatabaseSpreadsheet(accessToken);
+  savedQuotes: SavedQuote[],
+  userId?: string
+): Promise<{ id: string; url: string; isShared: boolean }> => {
+  const { id: spreadsheetId, url, isShared } = await ensureDatabaseSpreadsheet(accessToken, userId);
   const now = new Date().toLocaleString('pt-BR');
 
   // Re-write headers
@@ -494,5 +606,5 @@ export const fullSyncToGoogleSheet = async (
     });
   }
 
-  return { id: spreadsheetId, url };
+  return { id: spreadsheetId, url, isShared };
 };

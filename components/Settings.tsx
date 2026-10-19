@@ -1,7 +1,12 @@
 
 import React, { useState, useRef, Component } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { QrCode, Copy, Check, Smartphone, Laptop, Wifi, Camera, Link, Link2, Sparkles, RefreshCw, AlertCircle, CheckCircle2, RotateCcw, FileSpreadsheet, ExternalLink, CloudUpload, LogIn, LogOut, Loader2 } from 'lucide-react';
+import { 
+  QrCode, Copy, Check, Smartphone, Laptop, Wifi, Camera, Link, Link2, 
+  Sparkles, RefreshCw, AlertCircle, CheckCircle2, RotateCcw, FileSpreadsheet, 
+  ExternalLink, CloudUpload, LogIn, LogOut, Loader2, ArrowLeftRight, Users, 
+  Share2, HelpCircle, Info, ShieldCheck, UserCheck 
+} from 'lucide-react';
 import { QRScannerModal } from './QRScannerModal';
 import { compressImage, safeSetItem, encodeUnicodeBase64, decodeUnicodeBase64 } from '../utils/storage';
 import { UploadIcon } from './icons/UploadIcon';
@@ -14,7 +19,17 @@ import { PackagePlusIcon } from './icons/PackagePlusIcon';
 import type { QuoteSettings, CompanyInfo } from '../types';
 import { db, doc, getDoc, ensureAuth } from '../firebase';
 import { signInWithGoogle, logoutGoogle, getGoogleAccessToken } from '../googleAuth';
-import { fullSyncToGoogleSheet, getSavedSpreadsheetUrl, ensureDatabaseSpreadsheet } from '../googleSheetsService';
+import { 
+  fullSyncToGoogleSheet, 
+  getSavedSpreadsheetUrl, 
+  ensureDatabaseSpreadsheet,
+  getSpreadsheetMode,
+  setSpreadsheetMode,
+  setSharedSpreadsheet,
+  getSharedSpreadsheetUrl,
+  clearSharedSpreadsheet,
+  getSavedSpreadsheetId
+} from '../googleSheetsService';
 
 interface SettingsProps {
   logo: string | null;
@@ -34,8 +49,10 @@ interface SettingsProps {
   googleAccessToken?: string | null;
   spreadsheetUrl?: string | null;
   onConnectGoogle?: () => Promise<void>;
+  onSwitchGoogleAccount?: () => Promise<void>;
   onDisconnectGoogle?: () => Promise<void>;
   onSyncAllToGoogleSheets?: () => Promise<{ success: boolean; message: string; url?: string }>;
+  onUpdateSpreadsheetUrl?: (url: string | null) => void;
 }
 
 interface SafeQRCodeProps {
@@ -87,14 +104,21 @@ const Settings: React.FC<SettingsProps> = ({
   googleAccessToken,
   spreadsheetUrl,
   onConnectGoogle,
+  onSwitchGoogleAccount,
   onDisconnectGoogle,
   onSyncAllToGoogleSheets,
+  onUpdateSpreadsheetUrl,
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const restoreInputRef = React.useRef<HTMLInputElement>(null);
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
+  const [isSwitchingGoogle, setIsSwitchingGoogle] = useState(false);
   const [isSyncingGoogleSheets, setIsSyncingGoogleSheets] = useState(false);
   const [googleFeedback, setGoogleFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [spreadsheetMode, setSpreadsheetModeState] = useState<'personal' | 'shared'>(() => getSpreadsheetMode());
+  const [sharedUrlInput, setSharedUrlInput] = useState<string>(() => getSharedSpreadsheetUrl() || '');
+  const [isSavingSharedSheet, setIsSavingSharedSheet] = useState(false);
+  const [showMultiUserHelp, setShowMultiUserHelp] = useState(false);
   const [localCompanyInfo, setLocalCompanyInfo] = useState<CompanyInfo>({
     name: '',
     cnpj: '',
@@ -1183,49 +1207,147 @@ const Settings: React.FC<SettingsProps> = ({
           </div>
         </div>
 
-        {/* Seção Banco de Dados Google Drive e Planilha Google Sheets */}
+        {/* Seção Banco de Dados Google Drive e Planilha Google Sheets (Multi-Usuários e Equipe) */}
         <div className="pt-8 border-t border-slate-200">
-          <div className="flex items-center gap-3 mb-2">
-            <FileSpreadsheet className="h-6 w-6 text-emerald-600" />
-            <h3 className="text-lg font-medium text-slate-800">Banco de Dados em Planilha Google (Google Drive)</h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-2">
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-emerald-100 rounded-xl text-emerald-700">
+                <FileSpreadsheet className="h-6 w-6" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h3 className="text-lg font-bold text-slate-800">Banco de Dados em Planilha Google (Google Drive)</h3>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                    <Users className="w-3.5 h-3.5" />
+                    Multi-Contas & Equipe
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Salva produtos, clientes e orçamentos automaticamente na nuvem do Google Sheets
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowMultiUserHelp(!showMultiUserHelp)}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 hover:text-emerald-800 hover:underline px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-xl transition self-start sm:self-auto"
+            >
+              <HelpCircle className="w-4 h-4 text-emerald-600" />
+              {showMultiUserHelp ? 'Ocultar Dicas de Equipe' : 'Como Usar com Outras Pessoas?'}
+            </button>
           </div>
-          <p className="text-sm text-slate-500 mb-6">
-            O sistema salva automaticamente cada novo produto cadastrado, novo cliente e orçamento com nome do cliente e todos os itens detalhados em uma planilha no Google Drive da sua conta Google.
+
+          <p className="text-sm text-slate-600 mb-5">
+            Cada colaborador pode entrar com sua própria conta Google ou alternar entre contas. O sistema salva automaticamente cada novo produto, cliente e orçamento detalhado na planilha pessoal ou na planilha compartilhada da empresa.
           </p>
 
-          <div className="bg-emerald-50/40 p-6 rounded-2xl border border-emerald-200/80 shadow-sm space-y-5">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-white border border-emerald-200 shadow-sm flex items-center justify-center flex-shrink-0">
-                  <FileSpreadsheet className="w-7 h-7 text-emerald-600" />
-                </div>
+          {/* Dicas e Instruções para Multi-Usuários e Outras Pessoas */}
+          {showMultiUserHelp && (
+            <div className="mb-5 p-4 bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-200 rounded-2xl text-xs text-slate-700 shadow-sm animate-in fade-in duration-200">
+              <div className="flex items-center gap-2 font-bold text-emerald-900 mb-2">
+                <ShieldCheck className="w-4 h-4 text-emerald-700" />
+                Guia Rápido: Como liberar para outras pessoas da equipe usarem
+              </div>
+              <ul className="space-y-2 list-disc list-inside text-slate-700 leading-relaxed">
+                <li>
+                  <strong className="text-slate-900">Entrar com contas diferentes:</strong> Qualquer pessoa pode clicar no botão <em>"Conectar Conta Google"</em> ou <em>"Trocar de Conta Google"</em>. A tela oficial do Google sempre abrirá permitindo selecionar ou cadastrar qualquer outro e-mail (Gmail ou Google Workspace).
+                </li>
+                <li>
+                  <strong className="text-slate-900">Salvar na MESMA planilha da empresa:</strong> Se você quer que todos os colaboradores enviem vendas e produtos para a mesma planilha, selecione a opção <em>"Planilha Compartilhada da Empresa"</em> abaixo, cole o link da planilha principal e compartilhe-a no Google Drive com o e-mail dos seus colaboradores como <strong>Editor</strong>.
+                </li>
+                <li>
+                  <strong className="text-slate-900">Salvar em planilhas individuais:</strong> Se cada pessoa preferir ter seu próprio banco no seu Google Drive, basta deixar em <em>"Minha Planilha Própria"</em>. Cada conta terá sua planilha independente criada na hora.
+                </li>
+                <li>
+                  <strong className="text-slate-900">Aviso do Google (Tela de Consentimento em Teste):</strong> Caso outra pessoa veja uma mensagem como <em>"Acesso bloqueado / App em teste (403)"</em>, certifique-se de adicionar o e-mail dela na lista de <em>Usuários de teste (Test Users)</em> no painel do Google Cloud Console da sua aplicação, ou aprove o acesso em <em>"Avançado &gt; Continuar"</em> na primeira autorização.
+                </li>
+              </ul>
+            </div>
+          )}
+
+          <div className="bg-emerald-50/50 p-5 sm:p-6 rounded-2xl border border-emerald-200 shadow-sm space-y-6">
+            {/* Bloco 1: Conta Google Conectada / Login Multi-Usuário */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-xl border border-emerald-100 shadow-xs">
+              <div className="flex items-center gap-3.5">
+                {googleUser?.photoURL ? (
+                  <img
+                    src={googleUser.photoURL}
+                    alt={googleUser.displayName || 'Usuário'}
+                    className="w-12 h-12 rounded-full border-2 border-emerald-400 object-cover shadow-xs flex-shrink-0"
+                  />
+                ) : (
+                  <div className="w-12 h-12 rounded-full bg-emerald-100 border-2 border-emerald-300 flex items-center justify-center flex-shrink-0 text-emerald-800 font-bold text-lg">
+                    {googleUser?.displayName ? googleUser.displayName.charAt(0).toUpperCase() : (googleUser?.email ? googleUser.email.charAt(0).toUpperCase() : <Users className="w-6 h-6 text-emerald-700" />)}
+                  </div>
+                )}
                 <div>
-                  <h4 className="text-base font-bold text-slate-900">
-                    {googleUser ? (googleUser.displayName || googleUser.email || 'Conta Google Conectada') : 'Conexão Google Drive / Sheets'}
-                  </h4>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h4 className="text-base font-bold text-slate-900">
+                      {googleUser ? (googleUser.displayName || googleUser.email || 'Conta Google Conectada') : 'Nenhuma Conta Google Conectada'}
+                    </h4>
+                    {googleUser && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                        Ativo
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-slate-600">
                     {googleUser 
-                      ? `Conectado com ${googleUser.email || 'Google'}. Salvamento automático em planilha ativo.`
-                      : 'Conecte sua conta Google para gerar e atualizar a planilha no seu Google Drive.'}
+                      ? `${googleUser.email} • Pronto para salvar produtos, clientes e orçamentos`
+                      : 'Conecte qualquer conta Google (sua ou de colaboradores) para ativar o salvamento na nuvem.'}
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 flex-wrap sm:flex-nowrap">
-                {googleUser && onDisconnectGoogle ? (
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (onDisconnectGoogle) {
-                        await onDisconnectGoogle();
-                        setGoogleFeedback({ type: 'success', message: 'Conta Google desconectada.' });
-                      }
-                    }}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition shadow-sm"
-                  >
-                    <LogOut className="w-4 h-4 text-slate-500" />
-                    Desconectar
-                  </button>
+              {/* Botões de Ação de Conta */}
+              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                {googleUser ? (
+                  <>
+                    <button
+                      type="button"
+                      disabled={isSwitchingGoogle}
+                      onClick={async () => {
+                        if (onSwitchGoogleAccount) {
+                          setIsSwitchingGoogle(true);
+                          setGoogleFeedback(null);
+                          try {
+                            await onSwitchGoogleAccount();
+                            setGoogleFeedback({ type: 'success', message: 'Conta Google alternada com sucesso! Você pode usar qualquer conta cadastrada.' });
+                          } catch (err: any) {
+                            setGoogleFeedback({ type: 'error', message: err.message || 'Erro ao trocar conta Google.' });
+                          } finally {
+                            setIsSwitchingGoogle(false);
+                          }
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 active:scale-95 rounded-xl transition shadow-xs disabled:opacity-50"
+                      title="Permite que outra pessoa da equipe faça login com sua própria conta Google"
+                    >
+                      {isSwitchingGoogle ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                      ) : (
+                        <ArrowLeftRight className="w-4 h-4 text-emerald-600" />
+                      )}
+                      <span>Trocar Conta Google</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        if (onDisconnectGoogle) {
+                          await onDisconnectGoogle();
+                          setGoogleFeedback({ type: 'success', message: 'Conta Google desconectada com sucesso.' });
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 active:scale-95 rounded-xl transition shadow-xs"
+                      title="Desconectar a conta atual"
+                    >
+                      <LogOut className="w-3.5 h-3.5 text-rose-600" />
+                      <span>Desconectar</span>
+                    </button>
+                  </>
                 ) : (
                   <button
                     type="button"
@@ -1260,22 +1382,161 @@ const Settings: React.FC<SettingsProps> = ({
               </div>
             </div>
 
-            {/* Ações da Planilha quando Conectado */}
+            {/* Bloco 2: Modo de Planilha (Individual vs Compartilhada para Equipe) */}
+            <div className="bg-white p-4 sm:p-5 rounded-xl border border-emerald-100 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <Share2 className="w-4 h-4 text-emerald-600" />
+                    Destino dos Dados: Individual ou Compartilhada da Empresa
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Escolha se os dados salvos vão para o Google Drive pessoal de cada um ou para uma planilha compartilhada por toda a equipe.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                {/* Opção A: Pessoal */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSpreadsheetMode('personal');
+                    setSpreadsheetModeState('personal');
+                    clearSharedSpreadsheet();
+                    if (onUpdateSpreadsheetUrl) {
+                      onUpdateSpreadsheetUrl(getSavedSpreadsheetUrl(googleUser?.uid));
+                    }
+                    setGoogleFeedback({
+                      type: 'success',
+                      message: 'Modo alterado para Planilha Própria (Google Drive pessoal).'
+                    });
+                  }}
+                  className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between ${
+                    spreadsheetMode === 'personal'
+                      ? 'border-emerald-500 bg-emerald-50/80 ring-2 ring-emerald-500/20'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                      <UserCheck className="w-3.5 h-3.5 text-emerald-600" />
+                      Minha Planilha Própria
+                    </span>
+                    {spreadsheetMode === 'personal' && (
+                      <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-normal">
+                    Cada pessoa que fizer login cria e alimenta automaticamente sua própria planilha no seu Google Drive pessoal.
+                  </p>
+                </button>
+
+                {/* Opção B: Compartilhada */}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSpreadsheetMode('shared');
+                    setSpreadsheetModeState('shared');
+                  }}
+                  className={`p-3.5 rounded-xl border text-left transition flex flex-col justify-between ${
+                    spreadsheetMode === 'shared'
+                      ? 'border-emerald-500 bg-emerald-50/80 ring-2 ring-emerald-500/20'
+                      : 'border-slate-200 hover:border-slate-300 bg-white'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="font-bold text-xs text-slate-900 flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5 text-emerald-600" />
+                      Planilha Compartilhada da Empresa
+                    </span>
+                    {spreadsheetMode === 'shared' && (
+                      <span className="w-2 h-2 rounded-full bg-emerald-600"></span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-500 leading-normal">
+                    Todos os colaboradores com contas Google diferentes salvam juntos na mesma planilha centralizada.
+                  </p>
+                </button>
+              </div>
+
+              {/* Input para Link da Planilha Compartilhada quando modo Compartilhado */}
+              {spreadsheetMode === 'shared' && (
+                <div className="pt-3 border-t border-slate-100 space-y-2.5 animate-in fade-in duration-150">
+                  <label htmlFor="sharedSheetInput" className="block text-xs font-bold text-slate-700">
+                    Link ou ID da Planilha Central do Google Sheets:
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      id="sharedSheetInput"
+                      type="text"
+                      value={sharedUrlInput}
+                      onChange={(e) => setSharedUrlInput(e.target.value)}
+                      placeholder="https://docs.google.com/spreadsheets/d/.../edit"
+                      className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                    />
+                    <button
+                      type="button"
+                      disabled={isSavingSharedSheet}
+                      onClick={async () => {
+                        if (!sharedUrlInput.trim()) {
+                          clearSharedSpreadsheet();
+                          setSpreadsheetModeState('personal');
+                          if (onUpdateSpreadsheetUrl) {
+                            onUpdateSpreadsheetUrl(getSavedSpreadsheetUrl(googleUser?.uid));
+                          }
+                          setGoogleFeedback({ type: 'success', message: 'Configurado para usar planilha própria.' });
+                          return;
+                        }
+                        try {
+                          setIsSavingSharedSheet(true);
+                          const { url } = setSharedSpreadsheet(sharedUrlInput);
+                          if (onUpdateSpreadsheetUrl) {
+                            onUpdateSpreadsheetUrl(url);
+                          }
+                          setGoogleFeedback({
+                            type: 'success',
+                            message: '✅ Planilha compartilhada conectada com sucesso! Qualquer usuário com permissão de Editor salvará nesta planilha.'
+                          });
+                        } catch (err: any) {
+                          setGoogleFeedback({
+                            type: 'error',
+                            message: err.message || 'Erro ao configurar planilha compartilhada.'
+                          });
+                        } finally {
+                          setIsSavingSharedSheet(false);
+                        }
+                      }}
+                      className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 rounded-xl transition shadow-xs whitespace-nowrap"
+                    >
+                      {isSavingSharedSheet ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar Planilha da Equipe'}
+                    </button>
+                  </div>
+                  <p className="text-[11px] text-slate-500 flex items-center gap-1.5">
+                    <Info className="w-3.5 h-3.5 text-slate-400 flex-shrink-0" />
+                    Lembre-se de clicar em <strong>"Compartilhar"</strong> no Google Drive e adicionar os e-mails dos outros colaboradores como <strong>Editor</strong>.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Bloco 3: Ações e Acesso Direto à Planilha Ativa */}
             {googleUser && (
-              <div className="pt-4 border-t border-emerald-200/60 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+              <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                     Salvamento Automático Ativo
                   </span>
+
                   {spreadsheetUrl && (
                     <a
                       href={spreadsheetUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline px-2 py-1 bg-white border border-emerald-200 rounded-lg shadow-sm"
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 hover:text-emerald-900 px-3 py-1.5 bg-white border border-emerald-300 hover:bg-emerald-50 rounded-xl shadow-xs transition"
                     >
-                      <ExternalLink className="w-3.5 h-3.5" />
+                      <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
                       Abrir Planilha no Google Drive
                     </a>
                   )}
@@ -1304,11 +1565,11 @@ const Settings: React.FC<SettingsProps> = ({
                       }
                     }
                   }}
-                  className="inline-flex items-center justify-center gap-2 px-3.5 py-2 text-xs font-bold text-emerald-800 bg-white hover:bg-emerald-100/60 border border-emerald-300 rounded-xl transition shadow-sm disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-xs font-bold text-emerald-900 bg-white hover:bg-emerald-100/70 border border-emerald-300 rounded-xl transition shadow-xs disabled:opacity-50"
                 >
                   {isSyncingGoogleSheets ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin text-emerald-600" /> Sincronizando...
+                      <Loader2 className="w-4 h-4 animate-spin text-emerald-600" /> Sincronizando com a Planilha...
                     </>
                   ) : (
                     <>
@@ -1321,10 +1582,10 @@ const Settings: React.FC<SettingsProps> = ({
 
             {/* Mensagem de Feedback Google */}
             {googleFeedback && (
-              <div className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 ${
+              <div className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 animate-in fade-in duration-150 ${
                 googleFeedback.type === 'success' 
-                  ? 'bg-emerald-100/90 border-emerald-300 text-emerald-900' 
-                  : 'bg-amber-50 border-amber-300 text-amber-900'
+                  ? 'bg-emerald-100/90 border-emerald-300 text-emerald-950' 
+                  : 'bg-amber-50 border-amber-300 text-amber-950'
               }`}>
                 {googleFeedback.type === 'success' ? (
                   <CheckCircle2 className="w-4 h-4 text-emerald-700 flex-shrink-0 mt-0.5" />
@@ -1332,7 +1593,7 @@ const Settings: React.FC<SettingsProps> = ({
                   <AlertCircle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
                 )}
                 <div className="flex-1">
-                  <p className="font-semibold">{googleFeedback.message}</p>
+                  <p className="font-semibold leading-relaxed">{googleFeedback.message}</p>
                 </div>
               </div>
             )}
