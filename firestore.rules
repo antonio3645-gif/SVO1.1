@@ -1,11 +1,23 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /sync_rooms/{roomId} {
-      allow read, write: if true;
-    }
+    // 1. Global default-deny catch-all
     match /{document=**} {
-      allow read, write: if true;
+      allow read, write: if false;
+    }
+
+    // 2. Strict User Isolation: Each professional can only access their own data
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+      match /{allSubcollections=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+
+    // 3. Device sync rooms for direct code pairing
+    match /sync_rooms/{roomId} {
+      allow read, write: if request.auth != null;
     }
   }
 }

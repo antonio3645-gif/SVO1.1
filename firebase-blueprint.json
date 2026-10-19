@@ -1,16 +1,64 @@
 {
   "entities": {
+    "user_profile": {
+      "title": "UserProfile",
+      "description": "Professional user profile including chosen segment and identity",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User ID" },
+        "email": { "type": "string", "description": "Email address" },
+        "displayName": { "type": "string", "description": "Full name" },
+        "photoURL": { "type": "string", "description": "Profile picture URL" },
+        "professionalSegment": { "type": "string", "description": "Chosen professional segment" },
+        "customSegmentName": { "type": "string", "description": "Custom segment name if applicable" },
+        "updatedAt": { "type": "string", "description": "Last update ISO timestamp" }
+      },
+      "required": ["uid"]
+    },
+    "user_data": {
+      "title": "UserData",
+      "description": "Isolated database records for a professional user including clients, products, quotes, and settings",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "description": "User ID" },
+        "clients": { "type": "array", "description": "List of clients" },
+        "products": { "type": "array", "description": "List of products and customized services" },
+        "savedQuotes": { "type": "array", "description": "List of saved quotes" },
+        "companyInfo": { "type": "object", "description": "Company and professional profile information" },
+        "quoteSettings": { "type": "object", "description": "Quote layout, pricing, and sector settings" },
+        "professionalSegment": { "type": "string", "description": "Active professional segment" },
+        "lastUpdated": { "type": "number", "description": "Timestamp in milliseconds of last change" }
+      },
+      "required": ["uid", "lastUpdated"]
+    },
     "sync_rooms": {
-      "description": "Real-time sync rooms for multi-device data synchronization",
-      "fields": {
+      "title": "SyncRooms",
+      "description": "Legacy multi-device pairing rooms",
+      "type": "object",
+      "properties": {
         "roomId": { "type": "string", "description": "Unique room ID" },
         "clients": { "type": "array", "description": "List of clients" },
         "products": { "type": "array", "description": "List of products" },
         "savedQuotes": { "type": "array", "description": "List of saved quotes" },
         "companyInfo": { "type": "object", "description": "Company info" },
-        "quoteSettings": { "type": "object", "description": "Quote formatting and numbering settings" },
-        "updatedAt": { "type": "timestamp", "description": "Last update timestamp" }
-      }
+        "quoteSettings": { "type": "object", "description": "Quote settings" },
+        "updatedAt": { "type": "string", "description": "Last update timestamp" }
+      },
+      "required": ["roomId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "user_profile",
+      "description": "User profile with professional segment for an authenticated professional"
+    },
+    "/users/{userId}/data/current": {
+      "schema": "user_data",
+      "description": "Isolated cloud database of a specific professional (clients, products, quotes, settings)"
+    },
+    "/sync_rooms/{roomId}": {
+      "schema": "sync_rooms",
+      "description": "Legacy device pairing rooms"
     }
   }
 }

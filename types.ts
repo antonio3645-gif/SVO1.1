@@ -22,6 +22,19 @@ export interface CompanyInfo {
   zipCode: string;
   phone: string;
   email: string;
+  professionalSegment?: string;
+  customSegmentName?: string;
+}
+
+export interface UserProfile {
+  uid: string;
+  email?: string;
+  displayName?: string;
+  photoURL?: string;
+  professionalSegment?: string;
+  customSegmentName?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface Product {

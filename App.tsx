@@ -30,6 +30,16 @@ import {
   getSavedSpreadsheetUrl,
   ensureDatabaseSpreadsheet 
 } from './googleSheetsService';
+import { 
+  saveUserCloudData, 
+  fetchUserCloudData, 
+  subscribeToUserCloudData,
+  getScopedStorageKey 
+} from './utils/userDatabaseService';
+import { 
+  PROFESSIONAL_SEGMENTS, 
+  getSegmentById 
+} from './utils/professionalSegments';
 
 type Tab = 'clients' | 'products' | 'quotes' | 'settings';
 
@@ -79,6 +89,14 @@ const App: React.FC = () => {
   });
   const [quoteToEdit, setQuoteToEdit] = useState<SavedQuote | null>(null);
 
+  // --- Professional Segment State ---
+  const [professionalSegment, setProfessionalSegment] = useState<string>(() => {
+    return localStorage.getItem('professional_segment') || 'personalizado';
+  });
+  const [customSegmentName, setCustomSegmentName] = useState<string>(() => {
+    return localStorage.getItem('custom_segment_name') || '';
+  });
+
   // --- Google Drive / Sheets Integration State ---
   const [googleUser, setGoogleUser] = useState<any>(null);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(() => getGoogleAccessToken());
@@ -100,6 +118,113 @@ const App: React.FC = () => {
     );
     return () => unsubscribe();
   }, []);
+
+  // --- Real-time User Cloud Isolation Sync (Firestore /users/{uid}/data/current) ---
+  useEffect(() => {
+    const uid = googleUser?.uid;
+    if (!uid) return;
+
+    let isCancelled = false;
+
+    // Load or migrate initial data on login
+    const initUserCloud = async () => {
+      try {
+        const cloudData = await fetchUserCloudData(uid);
+        if (isCancelled) return;
+
+        if (cloudData && (cloudData.clients?.length || cloudData.products?.length || cloudData.savedQuotes?.length || cloudData.professionalSegment)) {
+          // Cloud data exists for this specific professional: load it!
+          if (Array.isArray(cloudData.clients)) {
+            setClients(cloudData.clients);
+            safeSetItem(getScopedStorageKey('clients', uid), JSON.stringify(cloudData.clients));
+          }
+          if (Array.isArray(cloudData.products)) {
+            setProducts(cloudData.products);
+            safeSetItem(getScopedStorageKey('products', uid), JSON.stringify(cloudData.products));
+          }
+          if (Array.isArray(cloudData.savedQuotes)) {
+            setSavedQuotes(cloudData.savedQuotes);
+            safeSetItem(getScopedStorageKey('savedQuotes', uid), JSON.stringify(cloudData.savedQuotes));
+          }
+          if (cloudData.companyInfo) {
+            setCompanyInfo(cloudData.companyInfo);
+            safeSetItem(getScopedStorageKey('companyInfo', uid), JSON.stringify(cloudData.companyInfo));
+          }
+          if (cloudData.quoteSettings) {
+            setQuoteSettings(cloudData.quoteSettings);
+            safeSetItem(getScopedStorageKey('quoteSettings', uid), JSON.stringify(cloudData.quoteSettings));
+          }
+          if (cloudData.professionalSegment) {
+            setProfessionalSegment(cloudData.professionalSegment);
+            localStorage.setItem('professional_segment', cloudData.professionalSegment);
+          }
+          if (cloudData.customSegmentName) {
+            setCustomSegmentName(cloudData.customSegmentName);
+            localStorage.setItem('custom_segment_name', cloudData.customSegmentName);
+          }
+        } else {
+          // First time this user logs in: save existing local data to their new cloud account!
+          await saveUserCloudData(uid, {
+            clients,
+            products,
+            savedQuotes,
+            companyInfo,
+            quoteSettings,
+            professionalSegment,
+            customSegmentName,
+          });
+        }
+      } catch (err) {
+        console.warn('Erro ao inicializar nuvem isolada do usuário:', err);
+      }
+    };
+
+    initUserCloud();
+
+    // Listen in real-time to changes from other devices (phone <-> computer)
+    const unsubscribe = subscribeToUserCloudData(uid, (data) => {
+      if (isCancelled) return;
+      if (data.lastUpdated && data.lastUpdated <= lastServerUpdateRef.current) {
+        return;
+      }
+      lastServerUpdateRef.current = data.lastUpdated || Date.now();
+      isSelfUpdatingRef.current = true;
+
+      if (Array.isArray(data.clients)) {
+        setClients(data.clients);
+        safeSetItem(getScopedStorageKey('clients', uid), JSON.stringify(data.clients));
+      }
+      if (Array.isArray(data.products)) {
+        setProducts(data.products);
+        safeSetItem(getScopedStorageKey('products', uid), JSON.stringify(data.products));
+      }
+      if (Array.isArray(data.savedQuotes)) {
+        setSavedQuotes(data.savedQuotes);
+        safeSetItem(getScopedStorageKey('savedQuotes', uid), JSON.stringify(data.savedQuotes));
+      }
+      if (data.companyInfo) {
+        setCompanyInfo(data.companyInfo);
+        safeSetItem(getScopedStorageKey('companyInfo', uid), JSON.stringify(data.companyInfo));
+      }
+      if (data.quoteSettings) {
+        setQuoteSettings(data.quoteSettings);
+        safeSetItem(getScopedStorageKey('quoteSettings', uid), JSON.stringify(data.quoteSettings));
+      }
+      if (data.professionalSegment) {
+        setProfessionalSegment(data.professionalSegment);
+        localStorage.setItem('professional_segment', data.professionalSegment);
+      }
+      if (data.customSegmentName) {
+        setCustomSegmentName(data.customSegmentName);
+        localStorage.setItem('custom_segment_name', data.customSegmentName);
+      }
+    });
+
+    return () => {
+      isCancelled = true;
+      unsubscribe();
+    };
+  }, [googleUser?.uid]);
 
   const handleConnectGoogle = async () => {
     try {
@@ -137,6 +262,12 @@ const App: React.FC = () => {
     setGoogleUser(null);
     setGoogleAccessToken(null);
     setSpreadsheetUrl(null);
+    const localClients = localStorage.getItem('clients') || '[]';
+    const localProducts = localStorage.getItem('products') || '[]';
+    const localQuotes = localStorage.getItem('savedQuotes') || '[]';
+    try { setClients(JSON.parse(localClients)); } catch {}
+    try { setProducts(JSON.parse(localProducts)); } catch {}
+    try { setSavedQuotes(JSON.parse(localQuotes)); } catch {}
   };
 
   const handleSyncAllToGoogleSheets = async () => {
@@ -153,6 +284,114 @@ const App: React.FC = () => {
         : '✅ Todos os produtos, clientes e orçamentos foram sincronizados com sucesso para a sua planilha do Google Drive!',
       url: result.url
     };
+  };
+
+  const handleSyncLocalToCloud = async () => {
+    const uid = googleUser?.uid;
+    if (!uid) {
+      throw new Error('Você precisa estar conectado com sua conta Google para salvar na nuvem.');
+    }
+    await saveUserCloudData(uid, {
+      clients,
+      products,
+      savedQuotes,
+      companyInfo,
+      quoteSettings,
+      professionalSegment,
+      customSegmentName,
+    });
+    return {
+      success: true,
+      message: `✅ Dados salvos com sucesso na sua nuvem pessoal! (${clients.length} clientes, ${products.length} produtos, ${savedQuotes.length} orçamentos protegidos por sua conta).`
+    };
+  };
+
+  const handleReloadUserCloud = async () => {
+    const uid = googleUser?.uid;
+    if (!uid) {
+      throw new Error('Você precisa estar conectado com sua conta Google.');
+    }
+    const cloudData = await fetchUserCloudData(uid);
+    if (!cloudData) {
+      throw new Error('Nenhum dado encontrado na nuvem para esta conta Google.');
+    }
+    if (Array.isArray(cloudData.clients)) setClients(cloudData.clients);
+    if (Array.isArray(cloudData.products)) setProducts(cloudData.products);
+    if (Array.isArray(cloudData.savedQuotes)) setSavedQuotes(cloudData.savedQuotes);
+    if (cloudData.companyInfo) setCompanyInfo(cloudData.companyInfo);
+    if (cloudData.quoteSettings) setQuoteSettings(cloudData.quoteSettings);
+    if (cloudData.professionalSegment) {
+      setProfessionalSegment(cloudData.professionalSegment);
+      localStorage.setItem('professional_segment', cloudData.professionalSegment);
+    }
+    if (cloudData.customSegmentName) {
+      setCustomSegmentName(cloudData.customSegmentName);
+      localStorage.setItem('custom_segment_name', cloudData.customSegmentName);
+    }
+    return {
+      success: true,
+      message: `✅ Dados carregados da nuvem com sucesso! (${cloudData.clients?.length || 0} clientes, ${cloudData.products?.length || 0} produtos, ${cloudData.savedQuotes?.length || 0} orçamentos sincronizados).`
+    };
+  };
+
+  const handleSelectSegment = (segmentId: string, applyPresets: boolean = false, customName?: string) => {
+    const segment = getSegmentById(segmentId);
+    setProfessionalSegment(segmentId);
+    localStorage.setItem('professional_segment', segmentId);
+
+    if (customName !== undefined) {
+      setCustomSegmentName(customName);
+      localStorage.setItem('custom_segment_name', customName);
+    }
+
+    let updatedProducts = [...products];
+    let updatedSettings = { ...quoteSettings };
+
+    if (applyPresets && segment.presetServices && segment.presetServices.length > 0) {
+      // Merge sectors
+      const mergedSectors = Array.from(new Set([...(updatedSettings.sectors || []), ...segment.defaultSectors]));
+      updatedSettings.sectors = mergedSectors;
+      setQuoteSettings(updatedSettings);
+      safeSetItem('quoteSettings', JSON.stringify(updatedSettings));
+
+      // Append preset services with unique sequential codes
+      let maxCode = updatedProducts.reduce((max, p) => {
+        const num = parseInt(p.code || '0', 10);
+        return !isNaN(num) && num > max ? num : max;
+      }, 0);
+
+      const now = new Date().toISOString();
+      const newItems: Product[] = segment.presetServices.map((preset) => {
+        maxCode += 1;
+        return {
+          id: crypto.randomUUID(),
+          type: preset.type,
+          code: String(maxCode).padStart(4, '0'),
+          name: preset.name,
+          costPrice: preset.costPrice,
+          sellPrice: preset.sellPrice,
+          stock: preset.stock,
+          sector: preset.sector,
+          observation: preset.observation,
+          updatedAt: now,
+        };
+      });
+
+      updatedProducts = [...updatedProducts, ...newItems];
+      setProducts(updatedProducts);
+      safeSetItem('products', JSON.stringify(updatedProducts));
+      saveToIndexedDB('products', updatedProducts);
+    }
+
+    const updatedCompanyInfo: CompanyInfo = {
+      ...(companyInfo || { name: '', cnpj: '', address: '', city: '', zipCode: '', phone: '', email: '' }),
+      professionalSegment: segmentId,
+      customSegmentName: customName !== undefined ? customName : customSegmentName,
+    };
+    setCompanyInfo(updatedCompanyInfo);
+    safeSetItem('companyInfo', JSON.stringify(updatedCompanyInfo));
+
+    pushToCloud(clients, updatedProducts, savedQuotes, updatedCompanyInfo, updatedSettings);
   };
 
   // --- Sync Room State ---
@@ -209,6 +448,27 @@ const App: React.FC = () => {
     customQuoteSettings = quoteSettings,
     targetRoom = syncRoomId
   ) => {
+    // 0. Push to isolated user cloud if authenticated (Every professional has their own private cloud db)
+    const uid = googleUser?.uid;
+    if (uid) {
+      saveUserCloudData(uid, {
+        clients: customClients,
+        products: customProducts,
+        savedQuotes: customSavedQuotes,
+        companyInfo: customCompanyInfo,
+        quoteSettings: customQuoteSettings,
+        professionalSegment,
+        customSegmentName,
+      }).catch((e) => {
+        console.warn('Erro ao salvar na nuvem isolada do usuário:', e);
+      });
+      safeSetItem(getScopedStorageKey('clients', uid), JSON.stringify(customClients));
+      safeSetItem(getScopedStorageKey('products', uid), JSON.stringify(customProducts));
+      safeSetItem(getScopedStorageKey('savedQuotes', uid), JSON.stringify(customSavedQuotes));
+      if (customCompanyInfo) safeSetItem(getScopedStorageKey('companyInfo', uid), JSON.stringify(customCompanyInfo));
+      if (customQuoteSettings) safeSetItem(getScopedStorageKey('quoteSettings', uid), JSON.stringify(customQuoteSettings));
+    }
+
     if (!targetRoom) return;
 
     const now = Date.now();
@@ -1156,6 +1416,14 @@ const App: React.FC = () => {
                     onDisconnectGoogle={handleDisconnectGoogle}
                     onSyncAllToGoogleSheets={handleSyncAllToGoogleSheets}
                     onUpdateSpreadsheetUrl={setSpreadsheetUrl}
+                    professionalSegment={professionalSegment}
+                    customSegmentName={customSegmentName}
+                    onSelectSegment={handleSelectSegment}
+                    onSyncLocalToCloud={handleSyncLocalToCloud}
+                    onReloadUserCloud={handleReloadUserCloud}
+                    clientsCount={clients.length}
+                    productsCount={products.length}
+                    quotesCount={savedQuotes.length}
                 />;
       default:
         return null;
@@ -1288,6 +1556,23 @@ const App: React.FC = () => {
                         <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                         Banco Local
                       </span>
+                      {/* Badge do Segmento Profissional */}
+                      {(() => {
+                        const seg = getSegmentById(professionalSegment);
+                        const displayName = professionalSegment === 'personalizado' && customSegmentName ? customSegmentName : seg.name.split('/')[0].trim();
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => setActiveTab('settings')}
+                            className="hidden md:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-900 border border-amber-200 hover:bg-amber-100 transition shadow-xs"
+                            title={`Segmento Profissional: ${seg.name}. Clique para personalizar serviços e preços.`}
+                          >
+                            <span>{seg.icon}</span>
+                            <span>{displayName}</span>
+                          </button>
+                        );
+                      })()}
+
                       {googleUser ? (
                         <a
                           href={spreadsheetUrl || '#'}

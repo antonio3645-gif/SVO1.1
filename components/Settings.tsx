@@ -5,7 +5,8 @@ import {
   QrCode, Copy, Check, Smartphone, Laptop, Wifi, Camera, Link, Link2, 
   Sparkles, RefreshCw, AlertCircle, CheckCircle2, RotateCcw, FileSpreadsheet, 
   ExternalLink, CloudUpload, LogIn, LogOut, Loader2, ArrowLeftRight, Users, 
-  Share2, HelpCircle, Info, ShieldCheck, UserCheck 
+  Share2, HelpCircle, Info, ShieldCheck, UserCheck, Briefcase, Wrench, Zap,
+  Droplets, Paintbrush, Hammer, Cpu, Database, Layers, ChevronRight, CheckCircle
 } from 'lucide-react';
 import { QRScannerModal } from './QRScannerModal';
 import { compressImage, safeSetItem, encodeUnicodeBase64, decodeUnicodeBase64 } from '../utils/storage';
@@ -30,6 +31,7 @@ import {
   clearSharedSpreadsheet,
   getSavedSpreadsheetId
 } from '../googleSheetsService';
+import { PROFESSIONAL_SEGMENTS, getSegmentById } from '../utils/professionalSegments';
 
 interface SettingsProps {
   logo: string | null;
@@ -53,6 +55,14 @@ interface SettingsProps {
   onDisconnectGoogle?: () => Promise<void>;
   onSyncAllToGoogleSheets?: () => Promise<{ success: boolean; message: string; url?: string }>;
   onUpdateSpreadsheetUrl?: (url: string | null) => void;
+  professionalSegment?: string;
+  customSegmentName?: string;
+  onSelectSegment?: (segmentId: string, applyPresets?: boolean, customName?: string) => void;
+  onSyncLocalToCloud?: () => Promise<{ success: boolean; message: string }>;
+  onReloadUserCloud?: () => Promise<{ success: boolean; message: string }>;
+  clientsCount?: number;
+  productsCount?: number;
+  quotesCount?: number;
 }
 
 interface SafeQRCodeProps {
@@ -108,17 +118,31 @@ const Settings: React.FC<SettingsProps> = ({
   onDisconnectGoogle,
   onSyncAllToGoogleSheets,
   onUpdateSpreadsheetUrl,
+  professionalSegment = 'personalizado',
+  customSegmentName = '',
+  onSelectSegment,
+  onSyncLocalToCloud,
+  onReloadUserCloud,
+  clientsCount = 0,
+  productsCount = 0,
+  quotesCount = 0,
 }) => {
   const fileInputRef = React.useRef<HTMLInputElement>(null);
   const restoreInputRef = React.useRef<HTMLInputElement>(null);
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
   const [isSwitchingGoogle, setIsSwitchingGoogle] = useState(false);
   const [isSyncingGoogleSheets, setIsSyncingGoogleSheets] = useState(false);
+  const [isSyncingLocalToCloud, setIsSyncingLocalToCloud] = useState(false);
+  const [isReloadingFromCloud, setIsReloadingFromCloud] = useState(false);
+  const [cloudDbFeedback, setCloudDbFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [googleFeedback, setGoogleFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [spreadsheetMode, setSpreadsheetModeState] = useState<'personal' | 'shared'>(() => getSpreadsheetMode());
   const [sharedUrlInput, setSharedUrlInput] = useState<string>(() => getSharedSpreadsheetUrl() || '');
   const [isSavingSharedSheet, setIsSavingSharedSheet] = useState(false);
   const [showMultiUserHelp, setShowMultiUserHelp] = useState(false);
+  const [customSegmentInput, setCustomSegmentInput] = useState(customSegmentName);
+  const [pendingSegmentId, setPendingSegmentId] = useState<string | null>(null);
+  const [showSegmentDetails, setShowSegmentDetails] = useState(false);
   const [localCompanyInfo, setLocalCompanyInfo] = useState<CompanyInfo>({
     name: '',
     cnpj: '',
@@ -1267,119 +1291,435 @@ const Settings: React.FC<SettingsProps> = ({
           )}
 
           <div className="bg-emerald-50/50 p-5 sm:p-6 rounded-2xl border border-emerald-200 shadow-sm space-y-6">
-            {/* Bloco 1: Conta Google Conectada / Login Multi-Usuário */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-white p-4 sm:p-5 rounded-xl border border-emerald-100 shadow-xs">
-              <div className="flex items-center gap-3.5">
-                {googleUser?.photoURL ? (
-                  <img
-                    src={googleUser.photoURL}
-                    alt={googleUser.displayName || 'Usuário'}
-                    className="w-12 h-12 rounded-full border-2 border-emerald-400 object-cover shadow-xs flex-shrink-0"
-                  />
-                ) : (
-                  <div className="w-12 h-12 rounded-full bg-emerald-100 border-2 border-emerald-300 flex items-center justify-center flex-shrink-0 text-emerald-800 font-bold text-lg">
-                    {googleUser?.displayName ? googleUser.displayName.charAt(0).toUpperCase() : (googleUser?.email ? googleUser.email.charAt(0).toUpperCase() : <Users className="w-6 h-6 text-emerald-700" />)}
+            {/* Bloco 1: Sistema Multiusuário e Banco de Dados Isolado no Firestore */}
+            <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100">
+                <div className="flex items-center gap-3.5">
+                  {googleUser?.photoURL ? (
+                    <img
+                      src={googleUser.photoURL}
+                      alt={googleUser.displayName || 'Usuário'}
+                      className="w-13 h-13 rounded-full border-2 border-emerald-500 object-cover shadow-sm flex-shrink-0"
+                    />
+                  ) : (
+                    <div className="w-13 h-13 rounded-full bg-emerald-100 border-2 border-emerald-400 flex items-center justify-center flex-shrink-0 text-emerald-800 font-bold text-xl shadow-xs">
+                      {googleUser?.displayName ? googleUser.displayName.charAt(0).toUpperCase() : (googleUser?.email ? googleUser.email.charAt(0).toUpperCase() : <Users className="w-7 h-7 text-emerald-700" />)}
+                    </div>
+                  )}
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h4 className="text-base font-bold text-slate-900">
+                        {googleUser ? (googleUser.displayName || googleUser.email) : 'Sistema Multiusuário Desconectado'}
+                      </h4>
+                      {googleUser ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
+                          Profissional Conectado
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-slate-100 text-slate-600 border border-slate-300">
+                          Modo Offline / Local
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      {googleUser 
+                        ? `${googleUser.email} • ID de Isolamento: ${googleUser.uid.slice(0, 10)}...`
+                        : 'Entre com sua conta Google para ativar seu banco de dados isolado na nuvem.'}
+                    </p>
                   </div>
-                )}
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <h4 className="text-base font-bold text-slate-900">
-                      {googleUser ? (googleUser.displayName || googleUser.email || 'Conta Google Conectada') : 'Nenhuma Conta Google Conectada'}
-                    </h4>
-                    {googleUser && (
-                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 animate-pulse"></span>
-                        Ativo
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-600">
-                    {googleUser 
-                      ? `${googleUser.email} • Pronto para salvar produtos, clientes e orçamentos`
-                      : 'Conecte qualquer conta Google (sua ou de colaboradores) para ativar o salvamento na nuvem.'}
-                  </p>
                 </div>
-              </div>
 
-              {/* Botões de Ação de Conta */}
-              <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
-                {googleUser ? (
-                  <>
+                {/* Botões de Ação de Conta */}
+                <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                  {googleUser ? (
+                    <>
+                      <button
+                        type="button"
+                        disabled={isSwitchingGoogle}
+                        onClick={async () => {
+                          if (onSwitchGoogleAccount) {
+                            setIsSwitchingGoogle(true);
+                            setGoogleFeedback(null);
+                            setCloudDbFeedback(null);
+                            try {
+                              await onSwitchGoogleAccount();
+                              setCloudDbFeedback({ type: 'success', message: 'Conta alternada com sucesso! Os dados deste profissional foram carregados do banco isolado.' });
+                            } catch (err: any) {
+                              setCloudDbFeedback({ type: 'error', message: err.message || 'Erro ao trocar conta Google.' });
+                            } finally {
+                              setIsSwitchingGoogle(false);
+                            }
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 active:scale-95 rounded-xl transition shadow-xs disabled:opacity-50"
+                        title="Permite que outro profissional entre com sua própria conta Google no mesmo dispositivo"
+                      >
+                        {isSwitchingGoogle ? (
+                          <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
+                        ) : (
+                          <ArrowLeftRight className="w-4 h-4 text-emerald-600" />
+                        )}
+                        <span>Trocar de Profissional</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (onDisconnectGoogle) {
+                            await onDisconnectGoogle();
+                            setCloudDbFeedback({ type: 'success', message: 'Conta desconectada com sucesso.' });
+                          }
+                        }}
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 active:scale-95 rounded-xl transition shadow-xs"
+                        title="Desconectar a conta atual"
+                      >
+                        <LogOut className="w-3.5 h-3.5 text-rose-600" />
+                        <span>Desconectar</span>
+                      </button>
+                    </>
+                  ) : (
                     <button
                       type="button"
-                      disabled={isSwitchingGoogle}
+                      disabled={isConnectingGoogle}
                       onClick={async () => {
-                        if (onSwitchGoogleAccount) {
-                          setIsSwitchingGoogle(true);
-                          setGoogleFeedback(null);
+                        if (onConnectGoogle) {
+                          setIsConnectingGoogle(true);
+                          setCloudDbFeedback(null);
                           try {
-                            await onSwitchGoogleAccount();
-                            setGoogleFeedback({ type: 'success', message: 'Conta Google alternada com sucesso! Você pode usar qualquer conta cadastrada.' });
+                            await onConnectGoogle();
+                            setCloudDbFeedback({ type: 'success', message: 'Conta conectada com sucesso! O banco de dados isolado na nuvem está ativo.' });
                           } catch (err: any) {
-                            setGoogleFeedback({ type: 'error', message: err.message || 'Erro ao trocar conta Google.' });
+                            setCloudDbFeedback({ type: 'error', message: err.message || 'Erro ao conectar conta Google.' });
                           } finally {
-                            setIsSwitchingGoogle(false);
+                            setIsConnectingGoogle(false);
                           }
                         }
                       }}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 active:scale-95 rounded-xl transition shadow-xs disabled:opacity-50"
-                      title="Permite que outra pessoa da equipe faça login com sua própria conta Google"
+                      className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 rounded-xl transition shadow-md disabled:opacity-50"
                     >
-                      {isSwitchingGoogle ? (
+                      {isConnectingGoogle ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" /> Conectando...
+                        </>
+                      ) : (
+                        <>
+                          <LogIn className="w-4 h-4" /> Entrar com Conta Google (Multiusuário)
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Informações de Isolamento e Segurança ABAC */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex items-start gap-3">
+                  <ShieldCheck className="w-5 h-5 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h5 className="text-xs font-bold text-slate-900">Isolamento Seguro (Firestore)</h5>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                      Regras criptografadas garantem que ninguém acesse clientes, preços ou orçamentos alheios.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex items-start gap-3">
+                  <Smartphone className="w-5 h-5 text-sky-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h5 className="text-xs font-bold text-slate-900">Celular & Computador</h5>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                      Acesse com a mesma conta Google no smartphone ou PC e encontre seus dados atualizados.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 flex items-start gap-3">
+                  <Database className="w-5 h-5 text-indigo-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <h5 className="text-xs font-bold text-slate-900">Dados Protegidos na Nuvem</h5>
+                    <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                      Gravados com segurança no banco de dados, protegidos mesmo se você limpar o navegador.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Resumo de Dados e Ações de Sincronização */}
+              {googleUser && (
+                <div className="pt-3 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-emerald-50 text-emerald-800 border border-emerald-200">
+                      <strong>{clientsCount}</strong> Clientes
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-sky-50 text-sky-800 border border-sky-200">
+                      <strong>{productsCount}</strong> Produtos / Serviços
+                    </span>
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-medium bg-purple-50 text-purple-800 border border-purple-200">
+                      <strong>{quotesCount}</strong> Orçamentos
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      disabled={isSyncingLocalToCloud}
+                      onClick={async () => {
+                        if (onSyncLocalToCloud) {
+                          setIsSyncingLocalToCloud(true);
+                          setCloudDbFeedback(null);
+                          try {
+                            const res = await onSyncLocalToCloud();
+                            setCloudDbFeedback({ type: 'success', message: res.message });
+                          } catch (err: any) {
+                            setCloudDbFeedback({ type: 'error', message: err.message || 'Erro ao salvar na nuvem.' });
+                          } finally {
+                            setIsSyncingLocalToCloud(false);
+                          }
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-xl transition shadow-xs disabled:opacity-50"
+                      title="Garante que todos os dados locais sejam enviados para seu banco na nuvem"
+                    >
+                      {isSyncingLocalToCloud ? (
                         <Loader2 className="w-4 h-4 animate-spin text-emerald-600" />
                       ) : (
-                        <ArrowLeftRight className="w-4 h-4 text-emerald-600" />
+                        <CloudUpload className="w-4 h-4 text-emerald-600" />
                       )}
-                      <span>Trocar Conta Google</span>
+                      <span>Salvar Dados na Nuvem Agora</span>
                     </button>
 
                     <button
                       type="button"
+                      disabled={isReloadingFromCloud}
                       onClick={async () => {
-                        if (onDisconnectGoogle) {
-                          await onDisconnectGoogle();
-                          setGoogleFeedback({ type: 'success', message: 'Conta Google desconectada com sucesso.' });
+                        if (onReloadUserCloud) {
+                          setIsReloadingFromCloud(true);
+                          setCloudDbFeedback(null);
+                          try {
+                            const res = await onReloadUserCloud();
+                            setCloudDbFeedback({ type: 'success', message: res.message });
+                          } catch (err: any) {
+                            setCloudDbFeedback({ type: 'error', message: err.message || 'Erro ao recarregar da nuvem.' });
+                          } finally {
+                            setIsReloadingFromCloud(false);
+                          }
                         }
                       }}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 active:scale-95 rounded-xl transition shadow-xs"
-                      title="Desconectar a conta atual"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-xl transition shadow-xs disabled:opacity-50"
+                      title="Recarrega os dados mais recentes salvos na nuvem desta conta"
                     >
-                      <LogOut className="w-3.5 h-3.5 text-rose-600" />
-                      <span>Desconectar</span>
+                      {isReloadingFromCloud ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-slate-600" />
+                      ) : (
+                        <RotateCcw className="w-4 h-4 text-slate-600" />
+                      )}
+                      <span>Recarregar da Nuvem</span>
                     </button>
-                  </>
-                ) : (
-                  <button
-                    type="button"
-                    disabled={isConnectingGoogle}
-                    onClick={async () => {
-                      if (onConnectGoogle) {
-                        setIsConnectingGoogle(true);
-                        setGoogleFeedback(null);
-                        try {
-                          await onConnectGoogle();
-                          setGoogleFeedback({ type: 'success', message: 'Conta Google conectada com sucesso! O banco de dados em planilha está ativo.' });
-                        } catch (err: any) {
-                          setGoogleFeedback({ type: 'error', message: err.message || 'Erro ao conectar conta Google.' });
-                        } finally {
-                          setIsConnectingGoogle(false);
-                        }
-                      }
-                    }}
-                    className="inline-flex items-center gap-2 px-4 py-2.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 rounded-xl transition shadow-md disabled:opacity-50"
-                  >
-                    {isConnectingGoogle ? (
-                      <>
-                        <Loader2 className="w-4 h-4 animate-spin" /> Conectando...
-                      </>
-                    ) : (
-                      <>
-                        <LogIn className="w-4 h-4" /> Conectar Conta Google
-                      </>
-                    )}
-                  </button>
-                )}
+                  </div>
+                </div>
+              )}
+
+              {/* Feedback de Nuvem */}
+              {cloudDbFeedback && (
+                <div className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 animate-in fade-in duration-150 ${
+                  cloudDbFeedback.type === 'success' 
+                    ? 'bg-emerald-50 border-emerald-300 text-emerald-950' 
+                    : 'bg-rose-50 border-rose-300 text-rose-950'
+                }`}>
+                  {cloudDbFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1">
+                    <p className="font-semibold">{cloudDbFeedback.message}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Bloco 2: Escolha e Personalização do Segmento Profissional */}
+            <div className="bg-white p-5 rounded-2xl border border-emerald-100 shadow-xs space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-base font-bold text-slate-900 flex items-center gap-2">
+                    <Briefcase className="w-5 h-5 text-emerald-600" />
+                    Segmento Profissional & Serviços Personalizados
+                  </h4>
+                  <p className="text-xs text-slate-500">
+                    Cada usuário escolhe sua área de atuação (mecânico, eletricista, encanador, etc.) e personaliza seus próprios serviços e preços.
+                  </p>
+                </div>
+
+                {/* Segmento Ativo Atual */}
+                {(() => {
+                  const currentSeg = getSegmentById(professionalSegment);
+                  const activeName = professionalSegment === 'personalizado' && customSegmentName ? customSegmentName : currentSeg.name;
+                  return (
+                    <div className="inline-flex items-center gap-2 px-3.5 py-1.5 bg-amber-50 border border-amber-300 text-amber-950 rounded-xl text-xs font-bold shadow-xs">
+                      <span className="text-base">{currentSeg.icon}</span>
+                      <span>{activeName}</span>
+                    </div>
+                  );
+                })()}
               </div>
+
+              {/* Grade de Segmentos */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 pt-2">
+                {PROFESSIONAL_SEGMENTS.map((seg) => {
+                  const isSelected = professionalSegment === seg.id;
+                  return (
+                    <button
+                      key={seg.id}
+                      type="button"
+                      onClick={() => {
+                        setPendingSegmentId(seg.id);
+                        if (seg.id === 'personalizado') {
+                          if (onSelectSegment) {
+                            onSelectSegment('personalizado', false, customSegmentInput);
+                          }
+                        }
+                      }}
+                      className={`p-3 rounded-xl border text-left transition-all relative flex flex-col justify-between gap-2 ${
+                        isSelected
+                          ? 'border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-500/25 shadow-xs'
+                          : 'border-slate-200 hover:border-emerald-300 hover:bg-slate-50/70'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between">
+                        <span className="text-2xl">{seg.icon}</span>
+                        {isSelected && (
+                          <span className="w-2.5 h-2.5 rounded-full bg-emerald-600 ring-2 ring-emerald-200"></span>
+                        )}
+                      </div>
+                      <div>
+                        <div className="font-bold text-xs text-slate-900 leading-tight">
+                          {seg.id === 'personalizado' && customSegmentName ? customSegmentName : seg.name.split('/')[0].trim()}
+                        </div>
+                        <span className="text-[10px] text-slate-500 block mt-0.5">
+                          {seg.category}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Painel de Ação para o Segmento Selecionado / Pendente */}
+              {pendingSegmentId && pendingSegmentId !== 'personalizado' && (() => {
+                const pendingSeg = getSegmentById(pendingSegmentId);
+                return (
+                  <div className="mt-3 p-4 bg-gradient-to-br from-emerald-50/70 to-teal-50/70 border border-emerald-200 rounded-xl space-y-3 animate-in fade-in duration-200">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-2xl">{pendingSeg.icon}</span>
+                        <div>
+                          <h5 className="text-xs font-bold text-emerald-950">
+                            {pendingSeg.name}
+                          </h5>
+                          <p className="text-[11px] text-slate-600">
+                            {pendingSeg.description}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-[11px] font-semibold text-emerald-800 bg-white/80 px-2.5 py-1 rounded-lg border border-emerald-200">
+                        {pendingSeg.presetServices.length} Serviços Pré-configurados
+                      </span>
+                    </div>
+
+                    {/* Prévia dos Serviços Sugeridos */}
+                    <div className="bg-white/80 p-3 rounded-lg border border-emerald-100 max-h-36 overflow-y-auto space-y-1.5 text-[11px]">
+                      <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wide mb-1">
+                        Exemplos de Serviços e Preços Sugeridos:
+                      </div>
+                      {pendingSeg.presetServices.slice(0, 4).map((svc, idx) => (
+                        <div key={idx} className="flex items-center justify-between text-slate-700 py-0.5 border-b border-slate-100 last:border-0">
+                          <span className="font-medium">• {svc.name}</span>
+                          <span className="font-bold text-emerald-700">R$ {svc.sellPrice.toFixed(2)}</span>
+                        </div>
+                      ))}
+                      {pendingSeg.presetServices.length > 4 && (
+                        <div className="text-[10px] text-slate-400 italic">
+                          + {pendingSeg.presetServices.length - 4} outros serviços e setores ({pendingSeg.defaultSectors.join(', ')})
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Botões de Decisão */}
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onSelectSegment) {
+                            onSelectSegment(pendingSeg.id, false);
+                          }
+                          setPendingSegmentId(null);
+                          setCloudDbFeedback({
+                            type: 'success',
+                            message: `✅ Segmento alterado para ${pendingSeg.name}. Seus serviços e produtos atuais foram preservados.`
+                          });
+                        }}
+                        className="px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-xl transition"
+                      >
+                        Apenas Mudar Segmento (Manter meus itens)
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (onSelectSegment) {
+                            onSelectSegment(pendingSeg.id, true);
+                          }
+                          setPendingSegmentId(null);
+                          setCloudDbFeedback({
+                            type: 'success',
+                            message: `✅ Segmento ${pendingSeg.name} ativado com pacote de ${pendingSeg.presetServices.length} serviços sugeridos e setores adicionados! Você pode personalizar todos os preços na aba de Produtos.`
+                          });
+                        }}
+                        className="inline-flex items-center justify-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition shadow-xs"
+                      >
+                        <Sparkles className="w-3.5 h-3.5" />
+                        Carregar Serviços & Preços Sugeridos
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Se segmento personalizado selecionado */}
+              {professionalSegment === 'personalizado' && (
+                <div className="mt-3 p-4 bg-slate-50 border border-slate-200 rounded-xl space-y-2 animate-in fade-in duration-200">
+                  <label htmlFor="customSegmentInput" className="block text-xs font-bold text-slate-700">
+                    Nome da sua Especialidade ou Segmento Profissional:
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <input
+                      id="customSegmentInput"
+                      type="text"
+                      value={customSegmentInput}
+                      onChange={(e) => setCustomSegmentInput(e.target.value)}
+                      placeholder="Ex: Marcenaria de Luxo, Eletrotécnica, CFTV, Jardinagem..."
+                      className="flex-1 px-3 py-2 text-xs border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (onSelectSegment) {
+                          onSelectSegment('personalizado', false, customSegmentInput);
+                        }
+                        setCloudDbFeedback({
+                          type: 'success',
+                          message: `✅ Segmento personalizado salvo como "${customSegmentInput || 'Personalizado'}".`
+                        });
+                      }}
+                      className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl transition shadow-xs whitespace-nowrap"
+                    >
+                      Salvar Especialidade
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Bloco 2: Modo de Planilha (Individual vs Compartilhada para Equipe) */}
