@@ -2,6 +2,20 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import type { Product, QuoteSettings, CompanyInfo } from '../types';
 import { compressImage } from '../utils/storage';
+import { 
+  Calculator, 
+  DollarSign, 
+  TrendingUp, 
+  Layers, 
+  Boxes, 
+  X, 
+  Printer, 
+  PieChart, 
+  Percent, 
+  PackageCheck,
+  CheckCircle2,
+  AlertCircle
+} from 'lucide-react';
 import { PackagePlusIcon } from './icons/PackagePlusIcon';
 import { FileDownIcon } from './icons/FileDownIcon';
 import { FileUpIcon } from './icons/FileUpIcon';
@@ -84,6 +98,9 @@ const Products: React.FC<ProductsProps> = ({
   const [selectedPriceTableSector, setSelectedPriceTableSector] = useState('all');
   const [priceTableSortBy, setPriceTableSortBy] = useState<'name' | 'code' | 'internalCode'>('name');
   const [sectorModalAction, setSectorModalAction] = useState<'print' | 'pdf' | 'whatsapp' | null>(null);
+  const [showTotalsModal, setShowTotalsModal] = useState(false);
+  const [totalsScope, setTotalsScope] = useState<'all' | 'filtered'>('all');
+  const [totalsTab, setTotalsTab] = useState<'overview' | 'sectors'>('overview');
   const [lastUpdatedInfo, setLastUpdatedInfo] = useState<{ name: string; date: string } | null>(null);
   const priceTableRef = useRef<HTMLDivElement>(null);
 
@@ -443,6 +460,235 @@ const Products: React.FC<ProductsProps> = ({
       return searchTermMatch && minCostMatch && maxCostMatch && minSellMatch && maxSellMatch;
     });
   }, [searchTerm, products, minCostPrice, maxCostPrice, minSellPrice, maxSellPrice]);
+
+  const targetTotalsProducts = totalsScope === 'filtered' ? filteredProducts : products;
+
+  const totalsData = useMemo(() => {
+    let totalCostUnitary = 0;
+    let totalSellUnitary = 0;
+    let totalCostStock = 0;
+    let totalSellStock = 0;
+    let totalStockUnits = 0;
+    let productsCount = 0;
+    let servicesCount = 0;
+    let zeroStockCount = 0;
+
+    const sectorMap: Record<string, {
+      sectorName: string;
+      count: number;
+      stockUnits: number;
+      costUnitary: number;
+      sellUnitary: number;
+      costStock: number;
+      sellStock: number;
+    }> = {};
+
+    targetTotalsProducts.forEach(p => {
+      const cost = Number(p.costPrice) || 0;
+      const discount = Number(p.discountPercent) || 0;
+      const actualSell = Number(p.sellPrice) * (1 - Math.min(100, Math.max(0, discount)) / 100) || 0;
+      const stock = Number(p.stock) || 0;
+      const isService = p.type === 'service';
+
+      if (isService) {
+        servicesCount++;
+      } else {
+        productsCount++;
+        totalStockUnits += stock;
+        if (stock <= 0) zeroStockCount++;
+      }
+
+      totalCostUnitary += cost;
+      totalSellUnitary += actualSell;
+
+      const stockMultiplier = isService ? (stock > 0 ? stock : 1) : stock;
+      totalCostStock += cost * stockMultiplier;
+      totalSellStock += actualSell * stockMultiplier;
+
+      const sectorKey = p.sector?.trim() || 'Sem Setor';
+      if (!sectorMap[sectorKey]) {
+        sectorMap[sectorKey] = {
+          sectorName: sectorKey,
+          count: 0,
+          stockUnits: 0,
+          costUnitary: 0,
+          sellUnitary: 0,
+          costStock: 0,
+          sellStock: 0,
+        };
+      }
+      sectorMap[sectorKey].count++;
+      sectorMap[sectorKey].stockUnits += stock;
+      sectorMap[sectorKey].costUnitary += cost;
+      sectorMap[sectorKey].sellUnitary += actualSell;
+      sectorMap[sectorKey].costStock += cost * stockMultiplier;
+      sectorMap[sectorKey].sellStock += actualSell * stockMultiplier;
+    });
+
+    const totalProfitStock = totalSellStock - totalCostStock;
+    const marginStock = totalSellStock > 0 ? (totalProfitStock / totalSellStock) * 100 : 0;
+    const markupStock = totalCostStock > 0 ? (totalProfitStock / totalCostStock) * 100 : 0;
+
+    const totalProfitUnitary = totalSellUnitary - totalCostUnitary;
+    const marginUnitary = totalSellUnitary > 0 ? (totalProfitUnitary / totalSellUnitary) * 100 : 0;
+    const markupUnitary = totalCostUnitary > 0 ? (totalProfitUnitary / totalCostUnitary) * 100 : 0;
+
+    const sectorsList = Object.values(sectorMap).sort((a, b) => b.sellStock - a.sellStock);
+
+    return {
+      totalCostUnitary,
+      totalSellUnitary,
+      totalProfitUnitary,
+      marginUnitary,
+      markupUnitary,
+      totalCostStock,
+      totalSellStock,
+      totalProfitStock,
+      marginStock,
+      markupStock,
+      totalStockUnits,
+      productsCount,
+      servicesCount,
+      zeroStockCount,
+      totalItems: targetTotalsProducts.length,
+      sectorsList,
+    };
+  }, [targetTotalsProducts]);
+
+  const handlePrintTotalsReport = () => {
+    const scopeLabel = totalsScope === 'filtered' 
+      ? `Itens Filtrados na Busca (${totalsData.totalItems} itens)` 
+      : `Todos os Itens Cadastrados (${totalsData.totalItems} itens)`;
+
+    const companyHeaderHtml = companyInfo ? `
+      <div style="text-align: center; margin-bottom: 15px; border-bottom: 1px solid #e2e8f0; padding-bottom: 10px;">
+        ${logo ? `<img src="${logo}" style="max-height: 50px; margin: 0 auto 6px; display: block;" alt="Logo" />` : ''}
+        <h3 style="margin: 0; font-size: 16px; color: #0f172a;">${companyInfo.name || ''}</h3>
+        ${companyInfo.cnpj ? `<p style="margin: 2px 0; font-size: 11px; color: #64748b;">CNPJ: ${companyInfo.cnpj}</p>` : ''}
+        ${companyInfo.phone ? `<p style="margin: 2px 0; font-size: 11px; color: #64748b;">Telefone: ${companyInfo.phone}</p>` : ''}
+      </div>
+    ` : '';
+
+    const sectorsTableHtml = totalsData.sectorsList.map(s => {
+      const profit = s.sellStock - s.costStock;
+      const margin = s.sellStock > 0 ? ((profit / s.sellStock) * 100).toFixed(1) : '0.0';
+      return `
+        <tr>
+          <td style="padding: 6px 8px; border: 1px solid #cbd5e1; font-weight: 600;">${s.sectorName}</td>
+          <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">${s.count}</td>
+          <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center;">${s.stockUnits}</td>
+          <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right; color: #475569;">R$ ${s.costStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right; font-weight: 600; color: #047857;">R$ ${s.sellStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: right; font-weight: 600; color: #0284c7;">R$ ${profit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+          <td style="padding: 6px 8px; border: 1px solid #cbd5e1; text-align: center; font-weight: 600; color: #059669;">${margin}%</td>
+        </tr>
+      `;
+    }).join('');
+
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <title>Relatório de Valores de Produtos e Estoque</title>
+          <style>
+            @media print {
+              @page { margin: 10mm; size: portrait; }
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+            }
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #1e293b; padding: 20px; font-size: 12px; }
+            h1 { font-size: 20px; margin: 0 0 4px; color: #0f172a; text-align: center; }
+            .subtitle { font-size: 12px; color: #64748b; text-align: center; margin-bottom: 16px; }
+            .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin-bottom: 20px; }
+            .card { border: 1px solid #cbd5e1; border-radius: 8px; padding: 12px; background-color: #f8fafc; }
+            .card-title { font-size: 11px; text-transform: uppercase; font-weight: 700; color: #475569; margin-bottom: 6px; }
+            .card-value { font-size: 18px; font-weight: 800; color: #0f172a; }
+            .card-sub { font-size: 11px; color: #64748b; margin-top: 4px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 11px; }
+            th { background-color: #f1f5f9; padding: 8px; border: 1px solid #cbd5e1; font-weight: 700; text-align: left; }
+            .footer { margin-top: 25px; text-align: right; font-size: 10px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 8px; }
+          </style>
+        </head>
+        <body>
+          ${companyHeaderHtml}
+          <h1>Relatório Geral de Valores e Estoque</h1>
+          <div class="subtitle">Escopo: <strong>${scopeLabel}</strong> • Emitido em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</div>
+          
+          <div class="grid">
+            <div class="card" style="border-left: 4px solid #64748b;">
+              <div class="card-title">Custo Total em Estoque</div>
+              <div class="card-value" style="color: #334155;">R$ ${totalsData.totalCostStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              <div class="card-sub">Custo Unitário Somado: R$ ${totalsData.totalCostUnitary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            </div>
+
+            <div class="card" style="border-left: 4px solid #10b981;">
+              <div class="card-title">Venda Total em Estoque (Faturamento)</div>
+              <div class="card-value" style="color: #047857;">R$ ${totalsData.totalSellStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              <div class="card-sub">Venda Unitária Somada: R$ ${totalsData.totalSellUnitary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+            </div>
+
+            <div class="card" style="border-left: 4px solid #0284c7;">
+              <div class="card-title">Lucro Bruto Projetado em Estoque</div>
+              <div class="card-value" style="color: #0284c7;">R$ ${totalsData.totalProfitStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+              <div class="card-sub">Margem Global: ${totalsData.marginStock.toFixed(1)}% • Markup: ${totalsData.markupStock.toFixed(1)}%</div>
+            </div>
+
+            <div class="card" style="border-left: 4px solid #f59e0b;">
+              <div class="card-title">Volumes e Peças Cadastradas</div>
+              <div class="card-value" style="color: #b45309;">${totalsData.totalStockUnits} Unidades em Estoque</div>
+              <div class="card-sub">${totalsData.totalItems} Itens (${totalsData.productsCount} Produtos, ${totalsData.servicesCount} Serviços)</div>
+            </div>
+          </div>
+
+          <h3 style="font-size: 13px; font-weight: 700; margin: 18px 0 6px; color: #1e293b;">Detalhamento por Setor</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Setor</th>
+                <th style="text-align: center;">Itens</th>
+                <th style="text-align: center;">Estoque</th>
+                <th style="text-align: right;">Custo Total</th>
+                <th style="text-align: right;">Venda Total</th>
+                <th style="text-align: right;">Lucro Bruto</th>
+                <th style="text-align: center;">Margem</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${sectorsTableHtml}
+            </tbody>
+          </table>
+
+          <div class="footer">
+            Documento gerado pelo Sistema de Gerenciamento e Orçamentos
+          </div>
+        </body>
+      </html>
+    `;
+
+    const printIframe = document.createElement('iframe');
+    printIframe.style.position = 'fixed';
+    printIframe.style.right = '0';
+    printIframe.style.bottom = '0';
+    printIframe.style.width = '0';
+    printIframe.style.height = '0';
+    printIframe.style.border = '0';
+    document.body.appendChild(printIframe);
+
+    const doc = printIframe.contentWindow?.document;
+    if (doc) {
+      doc.open();
+      doc.write(htmlContent);
+      doc.close();
+      setTimeout(() => {
+        printIframe.contentWindow?.focus();
+        printIframe.contentWindow?.print();
+        setTimeout(() => {
+          if (document.body.contains(printIframe)) {
+            document.body.removeChild(printIframe);
+          }
+        }, 1500);
+      }, 300);
+    }
+  };
   
   const handleExport = () => {
     if (products.length === 0) {
@@ -1364,7 +1610,18 @@ const Products: React.FC<ProductsProps> = ({
             <div>
                 <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-6 gap-4">
                     <h2 className="text-2xl font-bold text-slate-900">Itens Cadastrados</h2>
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                            type="button"
+                            onClick={() => setShowTotalsModal(true)}
+                            className="inline-flex items-center px-3.5 py-2 border border-emerald-300 rounded-md shadow-sm text-sm font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 active:scale-95 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-emerald-500 transition-all cursor-pointer"
+                            title="Ver valores totais de custo e venda de todos os produtos cadastrados"
+                        >
+                            <Calculator className="mr-2 h-4 w-4 text-emerald-600" />
+                            <span>Valores Totais</span>
+                            <span className="hidden md:inline ml-1 text-xs text-emerald-700 font-normal">(Custo & Venda)</span>
+                        </button>
+
                         <input
                             type="file"
                             ref={importInputRef}
@@ -2264,6 +2521,427 @@ const Products: React.FC<ProductsProps> = ({
                   </button>
                 </>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de Valores Totais de Produtos e Estoque (Custo e Venda) */}
+      {showTotalsModal && (
+        <div 
+          className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto"
+          onClick={() => setShowTotalsModal(false)}
+        >
+          <div 
+            className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-emerald-50 via-teal-50 to-emerald-50 border-b border-emerald-100 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-md shadow-emerald-600/20">
+                  <Calculator className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900">Valores Totais dos Produtos</h3>
+                  <p className="text-xs text-slate-600">
+                    Soma e consolidado de custos, preços de venda, lucro projetado e estoque
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={handlePrintTotalsReport}
+                  className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-800 bg-white hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors shadow-xs"
+                  title="Imprimir relatório geral de valores"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Imprimir Relatório</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTotalsModal(false)}
+                  className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors"
+                  title="Fechar"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Sub-bar: Scope Filter & Tabs */}
+            <div className="px-4 sm:px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-medium text-slate-500 mr-1">Base de Cálculo:</span>
+                <button
+                  type="button"
+                  onClick={() => setTotalsScope('all')}
+                  className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                    totalsScope === 'all'
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                  }`}
+                >
+                  Todos os Produtos ({products.length})
+                </button>
+                {filteredProducts.length !== products.length && (
+                  <button
+                    type="button"
+                    onClick={() => setTotalsScope('filtered')}
+                    className={`px-3 py-1 rounded-full text-xs font-semibold transition-all ${
+                      totalsScope === 'filtered'
+                        ? 'bg-emerald-600 text-white shadow-xs'
+                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    Filtrados na Busca ({filteredProducts.length})
+                  </button>
+                )}
+              </div>
+
+              {/* View Tabs */}
+              <div className="flex items-center bg-slate-200/80 p-0.5 rounded-lg text-xs font-medium self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setTotalsTab('overview')}
+                  className={`px-3 py-1 rounded-md transition-colors ${
+                    totalsTab === 'overview'
+                      ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Visão Geral
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTotalsTab('sectors')}
+                  className={`px-3 py-1 rounded-md transition-colors ${
+                    totalsTab === 'sectors'
+                      ? 'bg-white text-slate-900 shadow-xs font-semibold'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  Por Setor ({totalsData.sectorsList.length})
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body with scroll */}
+            <div className="p-4 sm:p-6 overflow-y-auto flex-1 space-y-6">
+              {totalsTab === 'overview' ? (
+                <>
+                  {/* Grid de 4 Cards Principais */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                    {/* Card 1: Custo Total */}
+                    <div className="bg-gradient-to-br from-slate-50 to-slate-100 p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-slate-500 flex items-center gap-1.5">
+                            <Layers className="w-3.5 h-3.5 text-slate-600" />
+                            Custo Total (Estoque)
+                          </span>
+                        </div>
+                        <div className="text-xl sm:text-2xl font-black text-slate-900">
+                          R$ {totalsData.totalCostStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-1 leading-snug">
+                          Considerando o volume das {totalsData.totalStockUnits} peças em estoque
+                        </p>
+                      </div>
+                      <div className="mt-3 pt-2.5 border-t border-slate-200 text-[11px] text-slate-600 flex justify-between">
+                        <span>Custo Unitário Total:</span>
+                        <strong className="text-slate-800">R$ {totalsData.totalCostUnitary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                      </div>
+                    </div>
+
+                    {/* Card 2: Venda Total */}
+                    <div className="bg-gradient-to-br from-emerald-50 to-teal-50/80 p-4 rounded-xl border border-emerald-200 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-emerald-800 flex items-center gap-1.5">
+                            <TrendingUp className="w-3.5 h-3.5 text-emerald-600" />
+                            Venda Total (Estoque)
+                          </span>
+                        </div>
+                        <div className="text-xl sm:text-2xl font-black text-emerald-900">
+                          R$ {totalsData.totalSellStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        <p className="text-[11px] text-emerald-700/80 mt-1 leading-snug">
+                          Faturamento bruto projetado com o estoque atual
+                        </p>
+                      </div>
+                      <div className="mt-3 pt-2.5 border-t border-emerald-200 text-[11px] text-emerald-800 flex justify-between">
+                        <span>Venda Unitária Total:</span>
+                        <strong className="text-emerald-950">R$ {totalsData.totalSellUnitary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                      </div>
+                    </div>
+
+                    {/* Card 3: Lucro Bruto Projetado */}
+                    <div className="bg-gradient-to-br from-sky-50 to-blue-50 p-4 rounded-xl border border-sky-200 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-sky-800 flex items-center gap-1.5">
+                            <DollarSign className="w-3.5 h-3.5 text-sky-600" />
+                            Lucro Bruto Projetado
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-800 border border-sky-300">
+                            {totalsData.marginStock.toFixed(1)}% Margem
+                          </span>
+                        </div>
+                        <div className="text-xl sm:text-2xl font-black text-sky-950">
+                          R$ {totalsData.totalProfitStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </div>
+                        <p className="text-[11px] text-sky-700/80 mt-1 leading-snug">
+                          Diferença entre Venda Total e Custo Total
+                        </p>
+                      </div>
+                      <div className="mt-3 pt-2.5 border-t border-sky-200 text-[11px] text-sky-800 flex justify-between">
+                        <span>Markup sobre o custo:</span>
+                        <strong className="text-sky-950">{totalsData.markupStock.toFixed(1)}%</strong>
+                      </div>
+                    </div>
+
+                    {/* Card 4: Quantidades e Estoque */}
+                    <div className="bg-gradient-to-br from-amber-50 to-orange-50/70 p-4 rounded-xl border border-amber-200 shadow-xs flex flex-col justify-between">
+                      <div>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold uppercase tracking-wider text-amber-800 flex items-center gap-1.5">
+                            <Boxes className="w-3.5 h-3.5 text-amber-600" />
+                            Itens e Unidades
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+                            {totalsData.totalItems} Cadastrados
+                          </span>
+                        </div>
+                        <div className="text-xl sm:text-2xl font-black text-amber-950">
+                          {totalsData.totalStockUnits} <span className="text-sm font-semibold text-amber-800">peças</span>
+                        </div>
+                        <p className="text-[11px] text-amber-700/80 mt-1 leading-snug">
+                          {totalsData.productsCount} produtos físicos • {totalsData.servicesCount} serviços
+                        </p>
+                      </div>
+                      <div className="mt-3 pt-2.5 border-t border-amber-200 text-[11px] text-amber-800 flex justify-between">
+                        <span>Estoque zerado/baixo:</span>
+                        <strong className={totalsData.zeroStockCount > 0 ? "text-rose-600 font-bold" : "text-emerald-700 font-bold"}>
+                          {totalsData.zeroStockCount} {totalsData.zeroStockCount === 1 ? 'item' : 'itens'}
+                        </strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Comparativo Detalhado: Unitário vs Volume em Estoque */}
+                  <div className="bg-white p-4 sm:p-5 rounded-xl border border-slate-200 shadow-xs">
+                    <h4 className="text-sm font-bold text-slate-900 mb-3 flex items-center gap-2">
+                      <PieChart className="w-4 h-4 text-emerald-600" />
+                      Comparativo de Valores: Unitário (Tabela) vs. Volume Total em Estoque
+                    </h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Lado A: Soma Unitária Simples (Preço de 1 unidade de cada item) */}
+                      <div className="p-4 bg-slate-50/80 rounded-xl border border-slate-200 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-slate-700">Soma Unitária dos Itens (Catálogo)</span>
+                          <span className="text-[10px] font-medium bg-slate-200 px-2 py-0.5 rounded-md text-slate-700">1 un. de cada</span>
+                        </div>
+                        <p className="text-[11px] text-slate-500">
+                          Representa o valor somado caso comprasse ou vendesse exatamente 1 unidade de cada produto cadastrado:
+                        </p>
+                        <div className="space-y-1.5 pt-1 text-xs">
+                          <div className="flex justify-between py-1 border-b border-slate-200/80">
+                            <span className="text-slate-600">Soma dos Custos Unitários:</span>
+                            <span className="font-semibold text-slate-800">R$ {totalsData.totalCostUnitary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-200/80">
+                            <span className="text-slate-600">Soma das Vendas Unitárias:</span>
+                            <span className="font-bold text-emerald-700">R$ {totalsData.totalSellUnitary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-slate-200/80">
+                            <span className="text-slate-600">Lucro Unitário Acumulado:</span>
+                            <span className="font-bold text-sky-700">R$ {totalsData.totalProfitUnitary.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between py-1">
+                            <span className="text-slate-600">Margem Média de Venda:</span>
+                            <span className="font-bold text-emerald-800">{totalsData.marginUnitary.toFixed(1)}% (Markup: {totalsData.markupUnitary.toFixed(1)}%)</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Lado B: Total Multiplicado pelo Estoque */}
+                      <div className="p-4 bg-emerald-50/50 rounded-xl border border-emerald-200 space-y-2.5">
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs font-bold text-emerald-950">Total Real em Estoque (Patrimônio)</span>
+                          <span className="text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300 px-2 py-0.5 rounded-md">{totalsData.totalStockUnits} peças totais</span>
+                        </div>
+                        <p className="text-[11px] text-emerald-900/80">
+                          Multiplica o custo e preço de venda pela quantidade real em estoque de cada produto cadastrado:
+                        </p>
+                        <div className="space-y-1.5 pt-1 text-xs">
+                          <div className="flex justify-between py-1 border-b border-emerald-200/80">
+                            <span className="text-slate-700">Custo Total Imobilizado:</span>
+                            <span className="font-semibold text-slate-900">R$ {totalsData.totalCostStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-emerald-200/80">
+                            <span className="text-slate-700">Previsão Bruta de Faturamento:</span>
+                            <span className="font-bold text-emerald-800">R$ {totalsData.totalSellStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between py-1 border-b border-emerald-200/80">
+                            <span className="text-slate-700">Lucro Bruto Total Projetado:</span>
+                            <span className="font-bold text-sky-800">R$ {totalsData.totalProfitStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between py-1">
+                            <span className="text-slate-700">Margem Global sobre o Estoque:</span>
+                            <span className="font-bold text-emerald-900">{totalsData.marginStock.toFixed(1)}% (Markup: {totalsData.markupStock.toFixed(1)}%)</span>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Resumo Rápido dos Principais Setores */}
+                  {totalsData.sectorsList.length > 0 && (
+                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
+                          Destaque por Setores (Top Setores em Valor)
+                        </h4>
+                        <button
+                          type="button"
+                          onClick={() => setTotalsTab('sectors')}
+                          className="text-xs font-bold text-emerald-700 hover:text-emerald-800 hover:underline"
+                        >
+                          Ver todos os {totalsData.sectorsList.length} setores &rarr;
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                        {totalsData.sectorsList.slice(0, 3).map((sec, idx) => (
+                          <div key={idx} className="p-3 bg-white rounded-lg border border-slate-200 shadow-2xs">
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="text-xs font-bold text-slate-900 truncate" title={sec.sectorName}>
+                                {sec.sectorName}
+                              </span>
+                              <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                {sec.count} {sec.count === 1 ? 'item' : 'itens'}
+                              </span>
+                            </div>
+                            <div className="flex justify-between text-[11px] mt-1 text-slate-600">
+                              <span>Venda Estoque:</span>
+                              <strong className="text-emerald-700">R$ {sec.sellStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+                            </div>
+                            <div className="flex justify-between text-[11px] text-slate-600">
+                              <span>Custo Estoque:</span>
+                              <span>R$ {sec.costStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                /* Aba: Detalhamento por Setor */
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900">Detalhamento Completo por Setor</h4>
+                      <p className="text-xs text-slate-500">
+                        Valores consolidados de custo e venda agrupados por cada setor cadastrado
+                      </p>
+                    </div>
+                    <span className="text-xs font-semibold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-full border border-slate-200">
+                      {totalsData.sectorsList.length} Setores Encontrados
+                    </span>
+                  </div>
+
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[10px]">
+                        <tr>
+                          <th className="py-2.5 px-3">Setor</th>
+                          <th className="py-2.5 px-2 text-center">Itens</th>
+                          <th className="py-2.5 px-2 text-center">Peças</th>
+                          <th className="py-2.5 px-3 text-right">Custo Total</th>
+                          <th className="py-2.5 px-3 text-right">Venda Total</th>
+                          <th className="py-2.5 px-3 text-right">Lucro Projetado</th>
+                          <th className="py-2.5 px-2 text-center">Margem</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {totalsData.sectorsList.map((sec, i) => {
+                          const profit = sec.sellStock - sec.costStock;
+                          const margin = sec.sellStock > 0 ? (profit / sec.sellStock) * 100 : 0;
+                          return (
+                            <tr key={i} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="py-2.5 px-3 font-semibold text-slate-900">{sec.sectorName}</td>
+                              <td className="py-2.5 px-2 text-center text-slate-600">{sec.count}</td>
+                              <td className="py-2.5 px-2 text-center text-slate-600">{sec.stockUnits}</td>
+                              <td className="py-2.5 px-3 text-right text-slate-700 font-medium">
+                                R$ {sec.costStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-emerald-700 font-bold">
+                                R$ {sec.sellStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="py-2.5 px-3 text-right text-sky-700 font-bold">
+                                R$ {profit.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </td>
+                              <td className="py-2.5 px-2 text-center">
+                                <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] ${
+                                  margin >= 30 ? 'bg-emerald-100 text-emerald-800' : margin >= 15 ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'
+                                }`}>
+                                  {margin.toFixed(1)}%
+                                </span>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot className="bg-slate-100 font-bold border-t border-slate-200 text-slate-900 text-xs">
+                        <tr>
+                          <td className="py-2.5 px-3">Total Consolidado</td>
+                          <td className="py-2.5 px-2 text-center">{totalsData.totalItems}</td>
+                          <td className="py-2.5 px-2 text-center">{totalsData.totalStockUnits}</td>
+                          <td className="py-2.5 px-3 text-right">
+                            R$ {totalsData.totalCostStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-emerald-800">
+                            R$ {totalsData.totalSellStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-sky-800">
+                            R$ {totalsData.totalProfitStock.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                          <td className="py-2.5 px-2 text-center text-emerald-800">
+                            {totalsData.marginStock.toFixed(1)}%
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-xs text-slate-500 hidden sm:block">
+                Valores calculados em tempo real com base no catálogo atual.
+              </div>
+              <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                <button
+                  type="button"
+                  onClick={handlePrintTotalsReport}
+                  className="flex-1 sm:flex-none inline-flex items-center justify-center gap-1.5 px-4 py-2 border border-slate-300 rounded-xl text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 transition shadow-2xs"
+                >
+                  <Printer className="w-4 h-4 text-slate-600" />
+                  <span>Imprimir Relatório</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowTotalsModal(false)}
+                  className="flex-1 sm:flex-none px-5 py-2 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition shadow-xs"
+                >
+                  Concluir / Fechar
+                </button>
+              </div>
             </div>
           </div>
         </div>

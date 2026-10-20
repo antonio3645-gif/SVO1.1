@@ -232,12 +232,14 @@ const App: React.FC = () => {
       if (result) {
         setGoogleUser(result.user);
         setGoogleAccessToken(result.accessToken);
-        // Automatically ensure or find spreadsheet for this user's Google Drive if available
-        try {
-          const sheet = await ensureDatabaseSpreadsheet(result.accessToken, result.user.uid);
-          setSpreadsheetUrl(sheet.url);
-        } catch (sheetErr) {
-          console.warn('Planilha do Google Drive não vinculada (utilizando banco Firestore isolado):', sheetErr);
+        // Automatically ensure or find spreadsheet for this user's Google Drive if accessToken is available
+        if (result.accessToken) {
+          try {
+            const sheet = await ensureDatabaseSpreadsheet(result.accessToken, result.user.uid);
+            setSpreadsheetUrl(sheet.url);
+          } catch (sheetErr) {
+            console.warn('Planilha do Google Drive não vinculada (utilizando banco Firestore isolado):', sheetErr);
+          }
         }
       }
     } catch (err: any) {
@@ -255,11 +257,13 @@ const App: React.FC = () => {
       if (result) {
         setGoogleUser(result.user);
         setGoogleAccessToken(result.accessToken);
-        try {
-          const sheet = await ensureDatabaseSpreadsheet(result.accessToken, result.user.uid);
-          setSpreadsheetUrl(sheet.url);
-        } catch (sheetErr) {
-          console.warn('Planilha do Google Drive não vinculada (utilizando banco Firestore isolado):', sheetErr);
+        if (result.accessToken) {
+          try {
+            const sheet = await ensureDatabaseSpreadsheet(result.accessToken, result.user.uid);
+            setSpreadsheetUrl(sheet.url);
+          } catch (sheetErr) {
+            console.warn('Planilha do Google Drive não vinculada (utilizando banco Firestore isolado):', sheetErr);
+          }
         }
       }
     } catch (err: any) {
