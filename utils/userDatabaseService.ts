@@ -30,7 +30,27 @@ export interface FirestoreErrorInfo {
   };
 }
 
+export function isOfflineError(error: unknown): boolean {
+  if (!error) return false;
+  const msg = error instanceof Error ? error.message : String(error);
+  const code = (error as any)?.code;
+  const combined = (msg + ' ' + (code || '')).toLowerCase();
+  return (
+    combined.includes('offline') ||
+    combined.includes('failed to get document because the client is offline') ||
+    combined.includes('client is offline') ||
+    combined.includes('unavailable') ||
+    combined.includes('network')
+  );
+}
+
 export function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  // Gracefully handle offline or network disconnect without console.error or crashing
+  if (isOfflineError(error)) {
+    console.warn(`[Firestore Offline] Operação ${operationType} em ${path}: dispositivo está operando offline. Dados salvos localmente.`);
+    return;
+  }
+
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
@@ -131,7 +151,11 @@ export async function fetchUserCloudData(uid: string): Promise<UserIsolatedData 
       return snap.data() as UserIsolatedData;
     }
     return null;
-  } catch (err) {
+  } catch (err: any) {
+    if (isOfflineError(err)) {
+      console.warn(`[Firestore Offline] Cliente offline ao buscar dados de ${path}. Utilizando dados locais.`);
+      return null;
+    }
     handleFirestoreError(err, OperationType.GET, path);
     return null;
   }
@@ -158,6 +182,10 @@ export function subscribeToUserCloudData(
       onData(data);
     }
   }, (err) => {
+    if (isOfflineError(err)) {
+      console.warn(`[Firestore Offline] Sincronização em tempo real aguardando reconexão (${path}).`);
+      return;
+    }
     console.warn(`[UserSync] Erro na sincronização do usuário ${uid}:`, err);
     if (onError) onError(err);
   });

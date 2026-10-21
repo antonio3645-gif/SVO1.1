@@ -20,7 +20,8 @@ import {
   switchGoogleAccount,
   logoutGoogle, 
   getGoogleAccessToken,
-  setCachedGoogleAccessToken 
+  setCachedGoogleAccessToken,
+  requestGoogleSheetsAccess
 } from './googleAuth';
 import { 
   appendProductsToGoogleSheet, 
@@ -163,19 +164,36 @@ const App: React.FC = () => {
             localStorage.setItem('custom_segment_name', cloudData.customSegmentName);
           }
         } else {
-          // First time this user logs in: save existing local data to their new cloud account!
-          await saveUserCloudData(uid, {
-            clients,
-            products,
-            savedQuotes,
-            companyInfo,
-            quoteSettings,
-            professionalSegment,
-            customSegmentName,
-          });
+          // If cloudData is null (offline) or new user:
+          // Check if this device already has scoped local data for this user
+          const cachedClients = localStorage.getItem(getScopedStorageKey('clients', uid));
+          if (cachedClients) {
+            try { setClients(JSON.parse(cachedClients)); } catch {}
+          }
+          const cachedProducts = localStorage.getItem(getScopedStorageKey('products', uid));
+          if (cachedProducts) {
+            try { setProducts(JSON.parse(cachedProducts)); } catch {}
+          }
+          const cachedQuotes = localStorage.getItem(getScopedStorageKey('savedQuotes', uid));
+          if (cachedQuotes) {
+            try { setSavedQuotes(JSON.parse(cachedQuotes)); } catch {}
+          }
+
+          // If online and cloud document was found to be empty, initialize cloud with local data
+          if (typeof navigator !== 'undefined' && navigator.onLine && cloudData !== null) {
+            await saveUserCloudData(uid, {
+              clients,
+              products,
+              savedQuotes,
+              companyInfo,
+              quoteSettings,
+              professionalSegment,
+              customSegmentName,
+            });
+          }
         }
       } catch (err) {
-        console.warn('Erro ao inicializar nuvem isolada do usuário:', err);
+        console.warn('Nuvem isolada operando em modo offline:', err);
       }
     };
 
@@ -302,6 +320,35 @@ const App: React.FC = () => {
         : '✅ Todos os produtos, clientes e orçamentos foram sincronizados com sucesso para a sua planilha do Google Drive!',
       url: result.url
     };
+  };
+
+  const handleAuthorizeGoogleSheets = async () => {
+    try {
+      const result = await requestGoogleSheetsAccess();
+      if (result) {
+        setGoogleUser(result.user);
+        setGoogleAccessToken(result.accessToken);
+        if (result.accessToken) {
+          const currentUid = result.user.uid;
+          const syncResult = await fullSyncToGoogleSheet(result.accessToken, clients, products, savedQuotes, currentUid);
+          setSpreadsheetUrl(syncResult.url);
+          return {
+            success: true,
+            message: syncResult.isShared
+              ? '✅ Permissão concedida! Todos os dados foram sincronizados para a planilha compartilhada da empresa.'
+              : '✅ Permissão concedida! Todos os dados foram sincronizados para a sua planilha no Google Drive.',
+            url: syncResult.url
+          };
+        }
+      }
+      return null;
+    } catch (err: any) {
+      if (err?.code === 'auth/popup-closed-by-user' || err?.code === 'auth/cancelled-popup-request') {
+        return null;
+      }
+      console.warn('Aviso ao autorizar Google Planilhas:', err?.message || err);
+      throw err;
+    }
   };
 
   const handleSyncLocalToCloud = async () => {
@@ -1433,6 +1480,7 @@ const App: React.FC = () => {
                     onSwitchGoogleAccount={handleSwitchGoogleAccount}
                     onDisconnectGoogle={handleDisconnectGoogle}
                     onSyncAllToGoogleSheets={handleSyncAllToGoogleSheets}
+                    onAuthorizeGoogleSheets={handleAuthorizeGoogleSheets}
                     onUpdateSpreadsheetUrl={setSpreadsheetUrl}
                     professionalSegment={professionalSegment}
                     customSegmentName={customSegmentName}

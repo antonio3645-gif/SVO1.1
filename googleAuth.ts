@@ -17,7 +17,7 @@ export const GOOGLE_SCOPES = [
  * Creates GoogleAuthProvider configured for mobile & desktop login.
  * Uses standard Google Auth scopes for 100% reliable login across phones and desktops.
  */
-export const createGoogleAuthProvider = (forceSelectAccount: boolean = true, includeDriveScopes: boolean = false): GoogleAuthProvider => {
+export const createGoogleAuthProvider = (forceSelectAccount: boolean = true, includeDriveScopes: boolean = true): GoogleAuthProvider => {
   const provider = new GoogleAuthProvider();
   if (includeDriveScopes) {
     GOOGLE_SCOPES.forEach(scope => provider.addScope(scope));
@@ -51,10 +51,13 @@ export const initGoogleAuth = (
  * Signs in with Google with account selection enabled by default.
  * Works seamlessly on mobile devices (Android/iOS) and desktop.
  */
-export const signInWithGoogle = async (options?: { forceSelectAccount?: boolean; includeDriveScopes?: boolean }): Promise<{ user: User; accessToken: string } | null> => {
+export const signInWithGoogle = async (options?: { forceSelectAccount?: boolean; includeDriveScopes?: boolean; prompt?: string }): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
-    const provider = createGoogleAuthProvider(options?.forceSelectAccount ?? true, options?.includeDriveScopes ?? false);
+    const provider = createGoogleAuthProvider(options?.forceSelectAccount ?? true, options?.includeDriveScopes ?? true);
+    if (options?.prompt) {
+      provider.setCustomParameters({ prompt: options.prompt });
+    }
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
     cachedAccessToken = credential?.accessToken || null;
@@ -68,7 +71,13 @@ export const signInWithGoogle = async (options?: { forceSelectAccount?: boolean;
       throw new Error('O navegador do seu celular bloqueou a janela pop-up do Google. Por favor, permita pop-ups nas configurações do navegador para entrar.');
     }
     if (error?.code === 'auth/unauthorized-domain') {
-      throw new Error('Domínio não autorizado no Firebase Authentication. Certifique-se de que o domínio da aplicação está na lista de domínios autorizados do Firebase.');
+      const currentHost = typeof window !== 'undefined' ? window.location.hostname : '';
+      const customErr: any = new Error(
+        `Domínio não autorizado no Firebase Authentication. O domínio "${currentHost || 'atual'}" precisa ser adicionado na lista de Domínios Autorizados no console do Firebase.`
+      );
+      customErr.code = 'auth/unauthorized-domain';
+      customErr.domain = currentHost;
+      throw customErr;
     }
     if (error?.message && (error.message.includes('access_denied') || error.message.includes('403'))) {
       throw new Error('Acesso negado pelo Google (403). Verifique as permissões de usuário ou tela de consentimento.');
@@ -86,7 +95,14 @@ export const signInWithGoogle = async (options?: { forceSelectAccount?: boolean;
  */
 export const switchGoogleAccount = async (): Promise<{ user: User; accessToken: string } | null> => {
   await logoutGoogle();
-  return await signInWithGoogle({ forceSelectAccount: true });
+  return await signInWithGoogle({ forceSelectAccount: true, includeDriveScopes: true });
+};
+
+/**
+ * Prompts user to grant Google Sheets / Drive permissions for spreadsheet sync.
+ */
+export const requestGoogleSheetsAccess = async (): Promise<{ user: User; accessToken: string } | null> => {
+  return await signInWithGoogle({ forceSelectAccount: false, includeDriveScopes: true, prompt: 'consent' });
 };
 
 export const getGoogleAccessToken = (): string | null => {

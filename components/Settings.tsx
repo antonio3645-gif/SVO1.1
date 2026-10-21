@@ -19,7 +19,8 @@ import { LockIcon } from './icons/LockIcon';
 import { PackagePlusIcon } from './icons/PackagePlusIcon';
 import type { QuoteSettings, CompanyInfo } from '../types';
 import { db, doc, getDoc, ensureAuth } from '../firebase';
-import { signInWithGoogle, logoutGoogle, getGoogleAccessToken } from '../googleAuth';
+import firebaseConfig from '../firebase-applet-config.json';
+import { signInWithGoogle, logoutGoogle, getGoogleAccessToken, requestGoogleSheetsAccess } from '../googleAuth';
 import { 
   fullSyncToGoogleSheet, 
   getSavedSpreadsheetUrl, 
@@ -54,6 +55,7 @@ interface SettingsProps {
   onSwitchGoogleAccount?: () => Promise<void>;
   onDisconnectGoogle?: () => Promise<void>;
   onSyncAllToGoogleSheets?: () => Promise<{ success: boolean; message: string; url?: string }>;
+  onAuthorizeGoogleSheets?: () => Promise<{ success: boolean; message: string; url?: string } | null>;
   onUpdateSpreadsheetUrl?: (url: string | null) => void;
   professionalSegment?: string;
   customSegmentName?: string;
@@ -117,6 +119,7 @@ const Settings: React.FC<SettingsProps> = ({
   onSwitchGoogleAccount,
   onDisconnectGoogle,
   onSyncAllToGoogleSheets,
+  onAuthorizeGoogleSheets,
   onUpdateSpreadsheetUrl,
   professionalSegment = 'personalizado',
   customSegmentName = '',
@@ -132,9 +135,11 @@ const Settings: React.FC<SettingsProps> = ({
   const [isConnectingGoogle, setIsConnectingGoogle] = useState(false);
   const [isSwitchingGoogle, setIsSwitchingGoogle] = useState(false);
   const [isSyncingGoogleSheets, setIsSyncingGoogleSheets] = useState(false);
+  const [isAuthorizingSheets, setIsAuthorizingSheets] = useState(false);
   const [isSyncingLocalToCloud, setIsSyncingLocalToCloud] = useState(false);
   const [isReloadingFromCloud, setIsReloadingFromCloud] = useState(false);
-  const [cloudDbFeedback, setCloudDbFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [cloudDbFeedback, setCloudDbFeedback] = useState<{ type: 'success' | 'error'; message: string; code?: string; domain?: string } | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
   const [googleFeedback, setGoogleFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [spreadsheetMode, setSpreadsheetModeState] = useState<'personal' | 'shared'>(() => getSpreadsheetMode());
   const [sharedUrlInput, setSharedUrlInput] = useState<string>(() => getSharedSpreadsheetUrl() || '');
@@ -1343,7 +1348,12 @@ const Settings: React.FC<SettingsProps> = ({
                               await onSwitchGoogleAccount();
                             } catch (err: any) {
                               if (err?.code !== 'auth/popup-closed-by-user' && err?.code !== 'auth/cancelled-popup-request') {
-                                setCloudDbFeedback({ type: 'error', message: err.message || 'Erro ao trocar conta Google.' });
+                                setCloudDbFeedback({ 
+                                  type: 'error', 
+                                  message: err.message || 'Erro ao trocar conta Google.',
+                                  code: err?.code,
+                                  domain: err?.domain || (typeof window !== 'undefined' ? window.location.hostname : '')
+                                });
                               }
                             } finally {
                               setIsSwitchingGoogle(false);
@@ -1388,7 +1398,12 @@ const Settings: React.FC<SettingsProps> = ({
                             await onConnectGoogle();
                           } catch (err: any) {
                             if (err?.code !== 'auth/popup-closed-by-user' && err?.code !== 'auth/cancelled-popup-request') {
-                              setCloudDbFeedback({ type: 'error', message: err.message || 'Erro ao conectar conta Google.' });
+                              setCloudDbFeedback({ 
+                                type: 'error', 
+                                message: err.message || 'Erro ao conectar conta Google.',
+                                code: err?.code,
+                                domain: err?.domain || (typeof window !== 'undefined' ? window.location.hostname : '')
+                              });
                             }
                           } finally {
                             setIsConnectingGoogle(false);
@@ -1521,20 +1536,104 @@ const Settings: React.FC<SettingsProps> = ({
 
               {/* Feedback de Nuvem */}
               {cloudDbFeedback && (
-                <div className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 animate-in fade-in duration-150 ${
-                  cloudDbFeedback.type === 'success' 
-                    ? 'bg-emerald-50 border-emerald-300 text-emerald-950' 
-                    : 'bg-rose-50 border-rose-300 text-rose-950'
-                }`}>
-                  {cloudDbFeedback.type === 'success' ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
-                  )}
-                  <div className="flex-1">
-                    <p className="font-semibold">{cloudDbFeedback.message}</p>
+                (cloudDbFeedback.code === 'auth/unauthorized-domain' || cloudDbFeedback.message.includes('Domínio não autorizado') || cloudDbFeedback.message.includes('unauthorized-domain')) ? (
+                  <div className="p-4 sm:p-5 rounded-2xl border-2 border-amber-300 bg-amber-50/90 text-amber-950 shadow-sm space-y-3.5 animate-in fade-in duration-150">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2 rounded-xl bg-amber-200/80 text-amber-900 flex-shrink-0 mt-0.5">
+                        <AlertCircle className="w-5 h-5 text-amber-700" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="text-sm font-bold text-amber-950">
+                            Autorizar Domínio no Firebase
+                          </h4>
+                          <span className="font-mono bg-white px-2 py-0.5 rounded-md border border-amber-300 text-amber-900 text-xs font-semibold">
+                            {cloudDbFeedback.domain || (typeof window !== 'undefined' ? window.location.hostname : 'svo1.netlify.app')}
+                          </span>
+                        </div>
+                        <p className="text-xs text-amber-900/80 mt-1 leading-relaxed">
+                          Por segurança, o Google exige que domínios externos (como o seu site no Netlify) sejam cadastrados na lista de domínios autorizados do Firebase antes de permitir o login com contas Google.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="bg-white p-3.5 rounded-xl border border-amber-200 text-xs space-y-2.5">
+                      <p className="font-bold text-slate-800 flex items-center gap-1.5">
+                        <CheckCircle className="w-4 h-4 text-emerald-600" />
+                        <span>Passo a passo rápido (leva apenas 1 minuto):</span>
+                      </p>
+                      <ol className="list-decimal list-inside space-y-2 text-slate-700 leading-relaxed pl-1">
+                        <li>
+                          <span>Copie o domínio da sua aplicação:</span>
+                          <div className="mt-1 flex items-center gap-2">
+                            <code className="bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-300 font-mono text-xs font-semibold text-slate-900 select-all">
+                              {cloudDbFeedback.domain || (typeof window !== 'undefined' ? window.location.hostname : 'svo1.netlify.app')}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const dom = cloudDbFeedback.domain || (typeof window !== 'undefined' ? window.location.hostname : 'svo1.netlify.app');
+                                navigator.clipboard.writeText(dom);
+                                setCopiedDomain(true);
+                                setTimeout(() => setCopiedDomain(false), 2500);
+                              }}
+                              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-100 hover:bg-amber-200 active:scale-95 text-amber-900 text-xs font-semibold transition"
+                            >
+                              {copiedDomain ? <Check className="w-3.5 h-3.5 text-emerald-700" /> : <Copy className="w-3.5 h-3.5" />}
+                              <span>{copiedDomain ? 'Copiado!' : 'Copiar Domínio'}</span>
+                            </button>
+                          </div>
+                        </li>
+                        <li>
+                          Acesse o console do Firebase no botão abaixo com a sua conta Google administradora do projeto.
+                        </li>
+                        <li>
+                          Na aba <strong>Configurações (Settings)</strong>, localize a seção <strong>Domínios autorizados (Authorized domains)</strong>.
+                        </li>
+                        <li>
+                          Clique em <strong>Adicionar domínio</strong>, cole <strong>{cloudDbFeedback.domain || (typeof window !== 'undefined' ? window.location.hostname : 'svo1.netlify.app')}</strong> e clique em <strong>Salvar</strong>.
+                        </li>
+                        <li>
+                          Pronto! Volte para esta página e clique novamente em <strong>Entrar com Conta Google</strong> (não precisa republicar o site).
+                        </li>
+                      </ol>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                      <a
+                        href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-amber-700 hover:bg-amber-800 active:scale-95 transition shadow-sm"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5" />
+                        <span>Abrir Configurações do Firebase ({firebaseConfig.projectId})</span>
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => setCloudDbFeedback(null)}
+                        className="px-3 py-2 rounded-xl text-xs font-semibold text-amber-800 hover:bg-amber-200/60 active:scale-95 transition"
+                      >
+                        Fechar aviso
+                      </button>
+                    </div>
                   </div>
-                </div>
+                ) : (
+                  <div className={`p-3 rounded-xl border text-xs flex items-start gap-2.5 animate-in fade-in duration-150 ${
+                    cloudDbFeedback.type === 'success' 
+                      ? 'bg-emerald-50 border-emerald-300 text-emerald-950' 
+                      : 'bg-rose-50 border-rose-300 text-rose-950'
+                  }`}>
+                    {cloudDbFeedback.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 flex-shrink-0 mt-0.5" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-rose-600 flex-shrink-0 mt-0.5" />
+                    )}
+                    <div className="flex-1">
+                      <p className="font-semibold">{cloudDbFeedback.message}</p>
+                    </div>
+                  </div>
+                )
               )}
             </div>
 
@@ -1602,20 +1701,100 @@ const Settings: React.FC<SettingsProps> = ({
 
             {/* Mensagem de Feedback Google */}
             {googleFeedback && (
-              <div className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 animate-in fade-in duration-150 ${
-                googleFeedback.type === 'success' 
-                  ? 'bg-emerald-100/90 border-emerald-300 text-emerald-950' 
-                  : 'bg-amber-50 border-amber-300 text-amber-950'
-              }`}>
-                {googleFeedback.type === 'success' ? (
-                  <CheckCircle2 className="w-4 h-4 text-emerald-700 flex-shrink-0 mt-0.5" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
-                )}
-                <div className="flex-1">
-                  <p className="font-semibold leading-relaxed">{googleFeedback.message}</p>
+              (googleFeedback.type === 'error' && (
+                googleFeedback.message.includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT') ||
+                googleFeedback.message.includes('insufficient') ||
+                googleFeedback.message.includes('Permissão insuficiente')
+              )) ? (
+                <div className="p-4 sm:p-5 rounded-2xl border-2 border-amber-300 bg-amber-50/95 text-amber-950 shadow-sm space-y-3.5 animate-in fade-in duration-150">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-amber-200/80 text-amber-900 flex-shrink-0 mt-0.5">
+                      <AlertCircle className="w-5 h-5 text-amber-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <h4 className="text-sm font-bold text-amber-950">
+                        Permissão do Google Planilhas Necessária
+                      </h4>
+                      <p className="text-xs text-amber-900/80 mt-1 leading-relaxed">
+                        Sua conta Google está conectada com sucesso ao sistema, mas você ainda não liberou a permissão para criar e atualizar planilhas no seu Google Drive. Clique no botão abaixo para autorizar com 1 clique e sincronizar imediatamente:
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={isAuthorizingSheets}
+                      onClick={async () => {
+                        setIsAuthorizingSheets(true);
+                        setGoogleFeedback(null);
+                        try {
+                          if (onAuthorizeGoogleSheets) {
+                            const res = await onAuthorizeGoogleSheets();
+                            if (res) {
+                              setGoogleFeedback({
+                                type: res.success ? 'success' : 'error',
+                                message: res.message
+                              });
+                            }
+                          } else {
+                            const result = await requestGoogleSheetsAccess();
+                            if (result && onSyncAllToGoogleSheets) {
+                              const syncRes = await onSyncAllToGoogleSheets();
+                              setGoogleFeedback({
+                                type: syncRes.success ? 'success' : 'error',
+                                message: syncRes.message
+                              });
+                            }
+                          }
+                        } catch (err: any) {
+                          if (err?.code !== 'auth/popup-closed-by-user' && err?.code !== 'auth/cancelled-popup-request') {
+                            setGoogleFeedback({
+                              type: 'error',
+                              message: 'Falha ao autorizar: ' + (err.message || 'Erro desconhecido')
+                            });
+                          }
+                        } finally {
+                          setIsAuthorizingSheets(false);
+                        }
+                      }}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:scale-95 transition shadow-sm disabled:opacity-50"
+                    >
+                      {isAuthorizingSheets ? (
+                        <>
+                          <Loader2 className="w-4 h-4 animate-spin" /> Concedendo Permissão...
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" /> Conceder Permissão e Sincronizar Planilha
+                        </>
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setGoogleFeedback(null)}
+                      className="px-3 py-2 rounded-xl text-xs font-semibold text-amber-800 hover:bg-amber-200/60 active:scale-95 transition"
+                    >
+                      Fechar aviso
+                    </button>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 animate-in fade-in duration-150 ${
+                  googleFeedback.type === 'success' 
+                    ? 'bg-emerald-100/90 border-emerald-300 text-emerald-950' 
+                    : 'bg-amber-50 border-amber-300 text-amber-950'
+                }`}>
+                  {googleFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-700 flex-shrink-0 mt-0.5" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 text-amber-700 flex-shrink-0 mt-0.5" />
+                  )}
+                  <div className="flex-1">
+                    <p className="font-semibold leading-relaxed">{googleFeedback.message}</p>
+                  </div>
+                </div>
+              )
             )}
           </div>
         </div>

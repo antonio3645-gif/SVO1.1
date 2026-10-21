@@ -108,6 +108,18 @@ export const formatBRL = (value: number | string | undefined | null): string => 
   });
 };
 
+export const checkGoogleApiResponse = async (response: Response, actionName: string) => {
+  if (!response.ok) {
+    const errText = await response.text();
+    if (response.status === 403 && (errText.includes('ACCESS_TOKEN_SCOPE_INSUFFICIENT') || errText.includes('insufficient authentication scopes'))) {
+      const scopeErr: any = new Error('Permissão insuficiente no Google Planilhas. Sua conta Google conectada precisa autorizar permissão para salvar e criar planilhas no seu Google Drive.');
+      scopeErr.code = 'ACCESS_TOKEN_SCOPE_INSUFFICIENT';
+      throw scopeErr;
+    }
+    throw new Error(`${actionName}: ${response.status} ${errText}`);
+  }
+};
+
 /**
  * Searches in Google Drive for an existing spreadsheet created by the app.
  */
@@ -183,10 +195,7 @@ export const createDatabaseSpreadsheet = async (accessToken: string, userId?: st
     body: JSON.stringify(spreadsheetResource),
   });
 
-  if (!response.ok) {
-    const errText = await response.text();
-    throw new Error(`Falha ao criar planilha: ${response.status} ${errText}`);
-  }
+  await checkGoogleApiResponse(response, 'Falha ao criar planilha');
 
   const created = await response.json();
   const spreadsheetId = created.spreadsheetId;
@@ -263,7 +272,7 @@ export const initializeSpreadsheetHeaders = async (spreadsheetId: string, access
     },
   ];
 
-  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+  const updateRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -274,6 +283,7 @@ export const initializeSpreadsheetHeaders = async (spreadsheetId: string, access
       data,
     }),
   });
+  await checkGoogleApiResponse(updateRes, 'Falha ao gravar cabeçalhos na planilha');
 };
 
 /**
@@ -497,7 +507,7 @@ export const fullSyncToGoogleSheet = async (
   await initializeSpreadsheetHeaders(spreadsheetId, accessToken);
 
   // Clear existing data after header
-  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`, {
+  const clearRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchClear`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -507,6 +517,7 @@ export const fullSyncToGoogleSheet = async (
       ranges: ["'Produtos & Serviços'!A2:Z", "'Clientes'!A2:Z", "'Orçamentos & Itens'!A2:Z"],
     }),
   });
+  await checkGoogleApiResponse(clearRes, 'Falha ao limpar dados antigos da planilha');
 
   // Prepare products rows
   const productRows = products.map(p => {
@@ -593,7 +604,7 @@ export const fullSyncToGoogleSheet = async (
   }
 
   if (batchData.length > 0) {
-    await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
+    const finalUpdateRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchUpdate`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${accessToken}`,
@@ -604,6 +615,7 @@ export const fullSyncToGoogleSheet = async (
         data: batchData,
       }),
     });
+    await checkGoogleApiResponse(finalUpdateRes, 'Falha ao sincronizar registros com a planilha');
   }
 
   return { id: spreadsheetId, url, isShared };
