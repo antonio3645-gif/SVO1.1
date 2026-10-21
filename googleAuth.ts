@@ -17,7 +17,7 @@ export const GOOGLE_SCOPES = [
  * Creates GoogleAuthProvider configured for mobile & desktop login.
  * Uses standard Google Auth scopes for 100% reliable login across phones and desktops.
  */
-export const createGoogleAuthProvider = (forceSelectAccount: boolean = true, includeDriveScopes: boolean = true): GoogleAuthProvider => {
+export const createGoogleAuthProvider = (forceSelectAccount: boolean = true, includeDriveScopes: boolean = false): GoogleAuthProvider => {
   const provider = new GoogleAuthProvider();
   if (includeDriveScopes) {
     GOOGLE_SCOPES.forEach(scope => provider.addScope(scope));
@@ -54,7 +54,7 @@ export const initGoogleAuth = (
 export const signInWithGoogle = async (options?: { forceSelectAccount?: boolean; includeDriveScopes?: boolean; prompt?: string }): Promise<{ user: User; accessToken: string } | null> => {
   try {
     isSigningIn = true;
-    const provider = createGoogleAuthProvider(options?.forceSelectAccount ?? true, options?.includeDriveScopes ?? true);
+    const provider = createGoogleAuthProvider(options?.forceSelectAccount ?? true, options?.includeDriveScopes ?? false);
     if (options?.prompt) {
       provider.setCustomParameters({ prompt: options.prompt });
     }
@@ -79,8 +79,10 @@ export const signInWithGoogle = async (options?: { forceSelectAccount?: boolean;
       customErr.domain = currentHost;
       throw customErr;
     }
-    if (error?.message && (error.message.includes('access_denied') || error.message.includes('403'))) {
-      throw new Error('Acesso negado pelo Google (403). Verifique as permissões de usuário ou tela de consentimento.');
+    if (error?.message && (error.message.includes('access_denied') || error.message.includes('403') || error?.code === 'auth/access_denied')) {
+      const deniedErr: any = new Error('Acesso bloqueado pelo Google (Erro 403: access_denied). O aplicativo está em modo de teste no Google Cloud e este e-mail precisa ser adicionado como Usuário de Teste pelo administrador do projeto.');
+      deniedErr.code = 'OAUTH_ACCESS_DENIED';
+      throw deniedErr;
     }
     console.warn('Aviso no login com Google:', error?.message || error);
     throw error;
@@ -95,7 +97,7 @@ export const signInWithGoogle = async (options?: { forceSelectAccount?: boolean;
  */
 export const switchGoogleAccount = async (): Promise<{ user: User; accessToken: string } | null> => {
   await logoutGoogle();
-  return await signInWithGoogle({ forceSelectAccount: true, includeDriveScopes: true });
+  return await signInWithGoogle({ forceSelectAccount: true, includeDriveScopes: false });
 };
 
 /**

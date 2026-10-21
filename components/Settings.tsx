@@ -1779,6 +1779,69 @@ const Settings: React.FC<SettingsProps> = ({
                     </button>
                   </div>
                 </div>
+              ) : (googleFeedback.type === 'error' && (
+                googleFeedback.message.includes('access_denied') ||
+                googleFeedback.message.includes('OAUTH_ACCESS_DENIED') ||
+                googleFeedback.message.includes('Acesso bloqueado')
+              )) ? (
+                <div className="p-4 sm:p-5 rounded-2xl border-2 border-rose-300 bg-rose-50/95 text-rose-950 shadow-sm space-y-3.5 animate-in fade-in duration-150">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-xl bg-rose-200/80 text-rose-900 flex-shrink-0 mt-0.5">
+                      <AlertCircle className="w-5 h-5 text-rose-700" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="text-sm font-bold text-rose-950">
+                          Acesso Bloqueado pelo Google (App em Testes no Google Cloud)
+                        </h4>
+                        <span className="font-mono bg-white px-2 py-0.5 rounded-md border border-rose-300 text-rose-900 text-xs font-semibold">
+                          Erro 403: access_denied
+                        </span>
+                      </div>
+                      <p className="text-xs text-rose-900/80 mt-1 leading-relaxed">
+                        O Google bloqueia a permissão de criar e editar arquivos no Google Drive porque este aplicativo ainda está em modo de teste e a conta <strong>{googleUser?.email || 'atual'}</strong> não está cadastrada na lista de testadores do Google Cloud pelo administrador.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="bg-white p-3.5 rounded-xl border border-rose-200 text-xs space-y-2.5">
+                    <p className="font-bold text-slate-800 flex items-center gap-1.5">
+                      <CheckCircle className="w-4 h-4 text-emerald-600" />
+                      <span>Como liberar esta conta para a planilha (2 opções rápidas):</span>
+                    </p>
+                    <div className="space-y-2 text-slate-700 leading-relaxed pl-1">
+                      <p>
+                        <strong>Opção 1 (Adicionar aos Testadores):</strong> O administrador do projeto (<code>antonio3645@gmail.com</code>) abre o link do Google Cloud abaixo, desce até <em>Usuários de Teste</em> e adiciona <code>{googleUser?.email || 'apglobo6878@gmail.com'}</code>.
+                      </p>
+                      <p>
+                        <strong>Opção 2 (Publicar o aplicativo):</strong> Na mesma tela do Google Cloud, basta clicar no botão <em>Publicar Aplicativo</em>. Assim qualquer conta Google poderá salvar na planilha.
+                      </p>
+                      <div className="pt-1.5 border-t border-slate-100 flex items-center gap-2 text-emerald-800 bg-emerald-50/70 p-2.5 rounded-lg">
+                        <ShieldCheck className="w-4 h-4 flex-shrink-0 text-emerald-600" />
+                        <span><strong>Fique 100% tranquilo:</strong> Todos os seus clientes, produtos e orçamentos já estão salvos e protegidos no Banco de Dados Firestore na Nuvem! A planilha é apenas uma cópia opcional no Drive.</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <a
+                      href={`https://console.cloud.google.com/apis/credentials/consent?project=${firebaseConfig.projectId}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold text-white bg-rose-700 hover:bg-rose-800 active:scale-95 transition shadow-sm"
+                    >
+                      <ExternalLink className="w-3.5 h-3.5" />
+                      <span>Abrir Tela de Consentimento no Google Cloud</span>
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => setGoogleFeedback(null)}
+                      className="px-3 py-2 rounded-xl text-xs font-semibold text-rose-800 hover:bg-rose-200/60 active:scale-95 transition"
+                    >
+                      Fechar aviso
+                    </button>
+                  </div>
+                </div>
               ) : (
                 <div className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 animate-in fade-in duration-150 ${
                   googleFeedback.type === 'success' 

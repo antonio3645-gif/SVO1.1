@@ -214,6 +214,7 @@ export const createDatabaseSpreadsheet = async (accessToken: string, userId?: st
 export const initializeSpreadsheetHeaders = async (spreadsheetId: string, accessToken: string) => {
   const productsHeader = [
     'Código',
+    'Código Interno',
     'Tipo',
     'Nome / Descrição',
     'Setor',
@@ -248,6 +249,7 @@ export const initializeSpreadsheetHeaders = async (spreadsheetId: string, access
     'Item / Produto',
     'Tipo Item',
     'Código Item',
+    'Código Interno',
     'Quantidade',
     'Valor Unitário (R$)',
     'Total do Item (R$)',
@@ -259,7 +261,7 @@ export const initializeSpreadsheetHeaders = async (spreadsheetId: string, access
 
   const data = [
     {
-      range: "'Produtos & Serviços'!A1:K1",
+      range: "'Produtos & Serviços'!A1:L1",
       values: [productsHeader],
     },
     {
@@ -267,7 +269,7 @@ export const initializeSpreadsheetHeaders = async (spreadsheetId: string, access
       values: [clientsHeader],
     },
     {
-      range: "'Orçamentos & Itens'!A1:N1",
+      range: "'Orçamentos & Itens'!A1:O1",
       values: [quotesHeader],
     },
   ];
@@ -377,6 +379,7 @@ export const appendProductsToGoogleSheet = async (
     const discountedPrice = hasDiscount ? p.sellPrice * (1 - p.discountPercent! / 100) : p.sellPrice;
     return [
       p.code || '',
+      p.internalCode || '',
       p.type === 'service' ? 'Serviço' : 'Produto',
       p.name || '',
       p.sector || '',
@@ -390,7 +393,7 @@ export const appendProductsToGoogleSheet = async (
     ];
   });
 
-  const range = encodeURIComponent("'Produtos & Serviços'!A:K");
+  const range = encodeURIComponent("'Produtos & Serviços'!A:L");
   await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED`, {
     method: 'POST',
     headers: {
@@ -466,6 +469,7 @@ export const appendQuoteToGoogleSheet = async (
       item.product.name,
       item.product.type === 'service' ? 'Serviço' : 'Produto',
       item.product.code || '',
+      item.product.internalCode || '',
       item.quantity,
       formatBRL(unitPrice),
       formatBRL(itemTotal),
@@ -476,7 +480,7 @@ export const appendQuoteToGoogleSheet = async (
     ];
   });
 
-  const range = encodeURIComponent("'Orçamentos & Itens'!A:N");
+  const range = encodeURIComponent("'Orçamentos & Itens'!A:O");
   await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED`, {
     method: 'POST',
     headers: {
@@ -525,6 +529,7 @@ export const fullSyncToGoogleSheet = async (
     const discountedPrice = hasDiscount ? p.sellPrice * (1 - p.discountPercent! / 100) : p.sellPrice;
     return [
       p.code || '',
+      p.internalCode || '',
       p.type === 'service' ? 'Serviço' : 'Produto',
       p.name || '',
       p.sector || '',
@@ -572,6 +577,7 @@ export const fullSyncToGoogleSheet = async (
         item.product.name,
         item.product.type === 'service' ? 'Serviço' : 'Produto',
         item.product.code || '',
+        item.product.internalCode || '',
         item.quantity,
         formatBRL(unitPrice),
         formatBRL(itemTotal),

@@ -331,7 +331,7 @@ const Products: React.FC<ProductsProps> = ({
     e.preventDefault();
     
     // Validação de limite de caracteres
-    const finalCode = code.slice(0, 18).trim();
+    const finalCode = code.slice(0, 28).trim();
     const finalInternalCode = internalCode.slice(0, 30).trim();
     const finalName = name.slice(0, 53).trim();
 
@@ -787,7 +787,7 @@ const Products: React.FC<ProductsProps> = ({
                     return;
                 }
 
-                const trimmedCode = String(code).trim().slice(0, 18);
+                const trimmedCode = String(code).trim().slice(0, 28);
                 if (existingCodesSet.has(trimmedCode.toLowerCase())) {
                     errors.push(`Linha ${index + 2}: Código "${trimmedCode}" já está cadastrado no sistema.`);
                     return;
@@ -1278,16 +1278,16 @@ const Products: React.FC<ProductsProps> = ({
             <div>
               <div className="flex justify-between items-center">
                 <label htmlFor="code" className="block text-sm font-medium text-slate-700">Código</label>
-                <span className={`text-xs ${code.length >= 18 ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
-                  {code.length}/18
+                <span className={`text-xs ${code.length >= 28 ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>
+                  {code.length}/28
                 </span>
               </div>
               <input 
                   type="text" 
                   id="code" 
                   value={code} 
-                  onChange={(e) => setCode(e.target.value.slice(0, 18))} 
-                  maxLength={18}
+                  onChange={(e) => setCode(e.target.value.slice(0, 28))} 
+                  maxLength={28}
                   className={`mt-1 block w-full px-3 py-2 bg-white border ${
                     isCodeDuplicate 
                       ? 'border-red-500 text-red-900 focus:ring-red-500 focus:border-red-500 bg-red-50/20' 
@@ -1301,7 +1301,7 @@ const Products: React.FC<ProductsProps> = ({
                   ⚠️ Código já cadastrado.
                 </p>
               ) : (
-                <p className="text-xs text-slate-500 mt-1">Código do item (máx. 18).</p>
+                <p className="text-xs text-slate-500 mt-1">Código do item (máx. 28).</p>
               )}
             </div>
 
