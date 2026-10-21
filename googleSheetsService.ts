@@ -626,3 +626,293 @@ export const fullSyncToGoogleSheet = async (
 
   return { id: spreadsheetId, url, isShared };
 };
+
+export const parseCurrencyOrNumber = (val: any): number => {
+  if (typeof val === 'number') return isNaN(val) ? 0 : val;
+  if (!val) return 0;
+  let str = String(val).trim();
+  str = str.replace(/R\$\s*/gi, '').replace(/\s+/g, '');
+  if (str.includes(',') && str.includes('.')) {
+    str = str.replace(/\./g, '').replace(',', '.');
+  } else if (str.includes(',')) {
+    str = str.replace(',', '.');
+  }
+  const parsed = parseFloat(str);
+  return isNaN(parsed) ? 0 : parsed;
+};
+
+export interface GoogleSheetsImportResult {
+  success: boolean;
+  hasChanges: boolean;
+  addedProductsCount: number;
+  updatedProductsCount: number;
+  addedClientsCount: number;
+  updatedClientsCount: number;
+  updatedProducts: Product[];
+  updatedClients: Client[];
+  message: string;
+}
+
+/**
+ * Reads products and clients from the connected Google Sheet
+ * and merges them into the current state (adding new items and updating modified items).
+ */
+export const importFromGoogleSheet = async (
+  accessToken: string,
+  currentProducts: Product[],
+  currentClients: Client[],
+  userId?: string
+): Promise<GoogleSheetsImportResult> => {
+  const { id: spreadsheetId } = await ensureDatabaseSpreadsheet(accessToken, userId);
+
+  // Fetch both tabs in a single batchGet request
+  const rangeProducts = encodeURIComponent("'Produtos & Serviços'!A1:L");
+  const rangeClients = encodeURIComponent("'Clientes'!A1:K");
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=${rangeProducts}&ranges=${rangeClients}`;
+
+  const response = await fetch(url, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+
+  await checkGoogleApiResponse(response, 'Falha ao ler dados da planilha do Google');
+
+  const data = await response.json();
+  const valueRanges = data.valueRanges || [];
+
+  const productsValueRange = valueRanges[0]?.values || [];
+  const clientsValueRange = valueRanges[1]?.values || [];
+
+  // Helper to map header columns dynamically
+  const getColIdx = (headers: string[], ...keywords: string[]): number => {
+    return headers.findIndex(h => {
+      const lower = String(h || '').toLowerCase().trim();
+      return keywords.some(k => lower.includes(k.toLowerCase().trim()));
+    });
+  };
+
+  // 1. Process Products
+  const updatedProducts: Product[] = [...currentProducts];
+  const productMap = new Map<string, { product: Product; index: number }>();
+  updatedProducts.forEach((p, idx) => {
+    productMap.set(p.code.toLowerCase().trim(), { product: p, index: idx });
+  });
+
+  let addedProductsCount = 0;
+  let updatedProductsCount = 0;
+
+  if (productsValueRange.length > 1) {
+    const rawHeaders: string[] = productsValueRange[0] || [];
+    const codeIdx = rawHeaders.findIndex(h => {
+      const lower = String(h || '').toLowerCase().trim();
+      return lower.includes('código') && !lower.includes('interno');
+    });
+    const internalCodeIdx = getColIdx(rawHeaders, 'código interno', 'codigo interno', 'interno');
+    const typeIdx = getColIdx(rawHeaders, 'tipo');
+    const nameIdx = getColIdx(rawHeaders, 'nome', 'descrição', 'descricao');
+    const sectorIdx = getColIdx(rawHeaders, 'setor', 'categoria');
+    const costIdx = getColIdx(rawHeaders, 'custo');
+    const sellIdx = getColIdx(rawHeaders, 'venda');
+    const discountIdx = getColIdx(rawHeaders, 'desconto (%)', 'desconto');
+    const stockIdx = getColIdx(rawHeaders, 'estoque', 'quant');
+    const obsIdx = getColIdx(rawHeaders, 'observação', 'observacao', 'obs');
+
+    for (let i = 1; i < productsValueRange.length; i++) {
+      const row = productsValueRange[i] || [];
+      const codeVal = (codeIdx !== -1 ? row[codeIdx] : row[0])?.trim();
+      const nameVal = (nameIdx !== -1 ? row[nameIdx] : row[3])?.trim();
+
+      // Skip empty rows
+      if (!codeVal && !nameVal) continue;
+
+      const effectiveCode = codeVal || `ITEM-${String(i).padStart(4, '0')}`;
+      const internalCodeVal = internalCodeIdx !== -1 ? row[internalCodeIdx]?.trim() || undefined : undefined;
+      const typeRaw = (typeIdx !== -1 ? row[typeIdx] : row[2])?.toLowerCase() || '';
+      const isService = typeRaw.includes('serviço') || typeRaw.includes('servico');
+      const sectorVal = sectorIdx !== -1 ? row[sectorIdx]?.trim() || undefined : undefined;
+      const costPriceVal = costIdx !== -1 ? parseCurrencyOrNumber(row[costIdx]) : 0;
+      const sellPriceVal = sellIdx !== -1 ? parseCurrencyOrNumber(row[sellIdx]) : 0;
+      const discountVal = discountIdx !== -1 && row[discountIdx] 
+        ? parseCurrencyOrNumber(String(row[discountIdx]).replace('%', '')) 
+        : undefined;
+      const stockVal = isService ? 0 : (stockIdx !== -1 ? (parseInt(String(row[stockIdx]).replace(/\D/g, ''), 10) || 0) : 0);
+      const obsVal = obsIdx !== -1 ? row[obsIdx]?.trim() || undefined : undefined;
+
+      const existingEntry = productMap.get(effectiveCode.toLowerCase().trim());
+      if (existingEntry) {
+        const { product: existing, index: pIdx } = existingEntry;
+        const changed = 
+          (nameVal && existing.name !== nameVal) ||
+          (internalCodeVal !== undefined && existing.internalCode !== internalCodeVal) ||
+          existing.sellPrice !== sellPriceVal ||
+          existing.costPrice !== costPriceVal ||
+          (!isService && existing.stock !== stockVal) ||
+          (sectorVal && existing.sector !== sectorVal) ||
+          (obsVal && existing.observation !== obsVal);
+
+        if (changed) {
+          const updated: Product = {
+            ...existing,
+            name: nameVal || existing.name,
+            internalCode: internalCodeVal !== undefined ? internalCodeVal : existing.internalCode,
+            type: isService ? 'service' : 'product',
+            sector: sectorVal || existing.sector,
+            costPrice: costPriceVal || existing.costPrice,
+            sellPrice: sellPriceVal || existing.sellPrice,
+            stock: isService ? 0 : stockVal,
+            observation: obsVal || existing.observation,
+            discountPercent: discountVal !== undefined ? discountVal : existing.discountPercent,
+            updatedAt: new Date().toISOString(),
+          };
+          updatedProducts[pIdx] = updated;
+          productMap.set(effectiveCode.toLowerCase().trim(), { product: updated, index: pIdx });
+          updatedProductsCount++;
+        }
+      } else {
+        // New product added directly in the spreadsheet!
+        const newProduct: Product = {
+          id: crypto.randomUUID(),
+          code: effectiveCode,
+          internalCode: internalCodeVal,
+          type: isService ? 'service' : 'product',
+          name: nameVal || 'Item da Planilha',
+          sector: sectorVal,
+          costPrice: costPriceVal,
+          sellPrice: sellPriceVal,
+          stock: isService ? 0 : stockVal,
+          observation: obsVal,
+          discountPercent: discountVal,
+          updatedAt: new Date().toISOString(),
+        };
+        updatedProducts.push(newProduct);
+        productMap.set(effectiveCode.toLowerCase().trim(), { product: newProduct, index: updatedProducts.length - 1 });
+        addedProductsCount++;
+      }
+    }
+  }
+
+  // 2. Process Clients
+  const updatedClients: Client[] = [...currentClients];
+  const clientMapByDoc = new Map<string, number>();
+  const clientMapByName = new Map<string, number>();
+  const clientMapByCode = new Map<string, number>();
+
+  updatedClients.forEach((c, idx) => {
+    if (c.code) clientMapByCode.set(c.code.toLowerCase().trim(), idx);
+    const docClean = (c.cnpj || c.cpf || '').replace(/\D/g, '');
+    if (docClean) clientMapByDoc.set(docClean, idx);
+    if (c.name) clientMapByName.set(c.name.toLowerCase().trim(), idx);
+  });
+
+  let addedClientsCount = 0;
+  let updatedClientsCount = 0;
+
+  if (clientsValueRange.length > 1) {
+    const rawHeaders: string[] = clientsValueRange[0] || [];
+    const codeIdx = getColIdx(rawHeaders, 'código', 'codigo');
+    const typeIdx = getColIdx(rawHeaders, 'tipo');
+    const nameIdx = getColIdx(rawHeaders, 'nome', 'razão', 'razao');
+    const docIdx = getColIdx(rawHeaders, 'cpf', 'cnpj', 'documento');
+    const phoneIdx = getColIdx(rawHeaders, 'telefone', 'whatsapp', 'celular', 'fone');
+    const emailIdx = getColIdx(rawHeaders, 'e-mail', 'email');
+    const addressIdx = getColIdx(rawHeaders, 'endereço', 'endereco', 'rua');
+    const cityIdx = getColIdx(rawHeaders, 'cidade');
+    const zipIdx = getColIdx(rawHeaders, 'cep');
+    const ieIdx = getColIdx(rawHeaders, 'inscrição', 'inscricao', 'ie');
+
+    for (let i = 1; i < clientsValueRange.length; i++) {
+      const row = clientsValueRange[i] || [];
+      const nameVal = (nameIdx !== -1 ? row[nameIdx] : row[2])?.trim();
+      const codeVal = (codeIdx !== -1 ? row[codeIdx] : row[0])?.trim();
+      const docVal = (docIdx !== -1 ? row[docIdx] : row[3])?.trim() || '';
+
+      if (!nameVal && !codeVal && !docVal) continue;
+
+      const typeRaw = (typeIdx !== -1 ? row[typeIdx] : row[1])?.toLowerCase() || '';
+      const isJuridical = typeRaw.includes('jurídica') || typeRaw.includes('juridica') || docVal.replace(/\D/g, '').length > 11;
+      const phoneVal = (phoneIdx !== -1 ? row[phoneIdx] : row[4])?.trim() || '';
+      const emailVal = (emailIdx !== -1 ? row[emailIdx] : row[5])?.trim() || undefined;
+      const addressVal = (addressIdx !== -1 ? row[addressIdx] : row[6])?.trim() || '';
+      const cityVal = (cityIdx !== -1 ? row[cityIdx] : row[7])?.trim() || '';
+      const zipVal = (zipIdx !== -1 ? row[zipIdx] : row[8])?.trim() || '';
+      const ieVal = ieIdx !== -1 ? row[ieIdx]?.trim() || undefined : undefined;
+
+      const docClean = docVal.replace(/\D/g, '');
+      const existingIdx = 
+        (codeVal && clientMapByCode.get(codeVal.toLowerCase().trim())) ??
+        (docClean && clientMapByDoc.get(docClean)) ??
+        (nameVal && clientMapByName.get(nameVal.toLowerCase().trim()));
+
+      if (existingIdx !== undefined && updatedClients[existingIdx]) {
+        const existing = updatedClients[existingIdx];
+        const changed = 
+          (nameVal && existing.name !== nameVal) ||
+          (phoneVal && existing.phone !== phoneVal) ||
+          (emailVal && existing.email !== emailVal) ||
+          (addressVal && existing.address !== addressVal) ||
+          (cityVal && existing.city !== cityVal) ||
+          (zipVal && existing.zipCode !== zipVal);
+
+        if (changed) {
+          const updated: Client = {
+            ...existing,
+            name: nameVal || existing.name,
+            phone: phoneVal || existing.phone,
+            email: emailVal || existing.email,
+            address: addressVal || existing.address,
+            city: cityVal || existing.city,
+            zipCode: zipVal || existing.zipCode,
+            stateRegistration: ieVal || existing.stateRegistration,
+          };
+          updatedClients[existingIdx] = updated;
+          updatedClientsCount++;
+        }
+      } else {
+        // New client added directly in the spreadsheet!
+        const newClient: Client = {
+          id: crypto.randomUUID(),
+          code: codeVal,
+          type: isJuridical ? 'juridical' : 'physical',
+          name: nameVal || 'Cliente da Planilha',
+          cpf: isJuridical ? undefined : docVal,
+          cnpj: isJuridical ? docVal : undefined,
+          phone: phoneVal,
+          email: emailVal,
+          address: addressVal,
+          city: cityVal,
+          zipCode: zipVal,
+          stateRegistration: ieVal,
+        };
+        const newIdx = updatedClients.length;
+        updatedClients.push(newClient);
+        if (codeVal) clientMapByCode.set(codeVal.toLowerCase().trim(), newIdx);
+        if (docClean) clientMapByDoc.set(docClean, newIdx);
+        if (nameVal) clientMapByName.set(nameVal.toLowerCase().trim(), newIdx);
+        addedClientsCount++;
+      }
+    }
+  }
+
+  const hasChanges = (addedProductsCount + updatedProductsCount + addedClientsCount + updatedClientsCount) > 0;
+
+  const parts: string[] = [];
+  if (addedProductsCount > 0) parts.push(`${addedProductsCount} novo(s) produto(s)`);
+  if (updatedProductsCount > 0) parts.push(`${updatedProductsCount} produto(s) atualizado(s)`);
+  if (addedClientsCount > 0) parts.push(`${addedClientsCount} novo(s) cliente(s)`);
+  if (updatedClientsCount > 0) parts.push(`${updatedClientsCount} cliente(s) atualizado(s)`);
+
+  const message = hasChanges
+    ? `Sincronização concluída: ${parts.join(', ')} importado(s) da planilha do Google.`
+    : 'A planilha do Google já está sincronizada com o sistema (nenhuma alteração pendente).';
+
+  return {
+    success: true,
+    hasChanges,
+    addedProductsCount,
+    updatedProductsCount,
+    addedClientsCount,
+    updatedClientsCount,
+    updatedProducts,
+    updatedClients,
+    message,
+  };
+};

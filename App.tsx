@@ -23,11 +23,13 @@ import {
   setCachedGoogleAccessToken,
   requestGoogleSheetsAccess
 } from './googleAuth';
+import { RefreshCw } from 'lucide-react';
 import { 
   appendProductsToGoogleSheet, 
   appendClientToGoogleSheet, 
   appendQuoteToGoogleSheet, 
   fullSyncToGoogleSheet, 
+  importFromGoogleSheet,
   getSavedSpreadsheetUrl,
   ensureDatabaseSpreadsheet 
 } from './googleSheetsService';
@@ -102,6 +104,8 @@ const App: React.FC = () => {
   const [googleUser, setGoogleUser] = useState<any>(null);
   const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(() => getGoogleAccessToken());
   const [spreadsheetUrl, setSpreadsheetUrl] = useState<string | null>(() => getSavedSpreadsheetUrl());
+  const [isCheckingSheet, setIsCheckingSheet] = useState(false);
+  const [sheetAutoSyncNotice, setSheetAutoSyncNotice] = useState<string | null>(null);
 
   // Listen for Google Auth state
   useEffect(() => {
@@ -494,6 +498,20 @@ const App: React.FC = () => {
   const isSelfUpdatingRef = React.useRef<boolean>(false);
   const isInitialSyncCompleteRef = React.useRef<boolean>(false);
 
+  // Fresh state refs to avoid stale closures during background polling and window events
+  const productsRef = React.useRef(products);
+  const clientsRef = React.useRef(clients);
+  const savedQuotesRef = React.useRef(savedQuotes);
+  const companyInfoRef = React.useRef(companyInfo);
+  const quoteSettingsRef = React.useRef(quoteSettings);
+  const isAutoImportingRef = React.useRef<boolean>(false);
+
+  useEffect(() => { productsRef.current = products; }, [products]);
+  useEffect(() => { clientsRef.current = clients; }, [clients]);
+  useEffect(() => { savedQuotesRef.current = savedQuotes; }, [savedQuotes]);
+  useEffect(() => { companyInfoRef.current = companyInfo; }, [companyInfo]);
+  useEffect(() => { quoteSettingsRef.current = quoteSettings; }, [quoteSettings]);
+
   const handleSetSyncRoomId = (newRoomId: string) => {
     const cleanRoom = newRoomId.trim().toLowerCase();
     if (cleanRoom) {
@@ -570,6 +588,102 @@ const App: React.FC = () => {
       }).catch(() => {});
     } catch (e) {}
   }, [clients, products, savedQuotes, companyInfo, quoteSettings, syncRoomId]);
+
+  // --- Importação e Sincronização Automática a partir da Planilha Google ---
+  const handleCheckAndImportFromGoogleSheet = React.useCallback(async (showNoChangesFeedback = true) => {
+    if (!googleAccessToken || !googleUser) {
+      if (showNoChangesFeedback) {
+        throw new Error('Conta Google não conectada. Conecte sua conta para sincronizar com a planilha.');
+      }
+      return { success: false, message: 'Conta Google não conectada.' };
+    }
+
+    if (isAutoImportingRef.current) {
+      return { success: true, message: 'Verificação já em andamento...' };
+    }
+
+    isAutoImportingRef.current = true;
+    setIsCheckingSheet(true);
+
+    try {
+      const currentUid = googleUser.uid;
+      const currentProd = productsRef.current;
+      const currentCli = clientsRef.current;
+
+      const result = await importFromGoogleSheet(googleAccessToken, currentProd, currentCli, currentUid);
+
+      if (result.hasChanges) {
+        // Atualiza estado local no React
+        setProducts(result.updatedProducts);
+        setClients(result.updatedClients);
+
+        // Persiste com segurança no LocalStorage isolado e global
+        safeSetItem('products', JSON.stringify(result.updatedProducts));
+        safeSetItem('clients', JSON.stringify(result.updatedClients));
+        safeSetItem(getScopedStorageKey('products', currentUid), JSON.stringify(result.updatedProducts));
+        safeSetItem(getScopedStorageKey('clients', currentUid), JSON.stringify(result.updatedClients));
+        saveToIndexedDB('products', result.updatedProducts);
+        saveToIndexedDB('clients', result.updatedClients);
+
+        // Propaga instantaneamente para o banco de dados nuvem Firestore
+        await pushToCloud(
+          result.updatedClients,
+          result.updatedProducts,
+          savedQuotesRef.current,
+          companyInfoRef.current,
+          quoteSettingsRef.current
+        );
+
+        setSheetAutoSyncNotice(result.message);
+        setTimeout(() => setSheetAutoSyncNotice(null), 6000);
+      }
+
+      return result;
+    } catch (err: any) {
+      console.warn('Aviso ao verificar importação da planilha:', err);
+      if (showNoChangesFeedback) {
+        throw err;
+      }
+      return { success: false, message: err?.message || 'Erro ao importar dados da planilha.' };
+    } finally {
+      isAutoImportingRef.current = false;
+      setIsCheckingSheet(false);
+    }
+  }, [googleAccessToken, googleUser, pushToCloud]);
+
+  // Listener para sincronização automática contínua da planilha do Google
+  useEffect(() => {
+    if (!googleUser || !googleAccessToken) return;
+
+    // 1. Verificação suave 3.5 segundos após conectar
+    const timer = setTimeout(() => {
+      handleCheckAndImportFromGoogleSheet(false);
+    }, 3500);
+
+    // 2. Verificação ao retornar o foco à aba (ex: o usuário acabou de cadastrar produtos/clientes na aba da planilha)
+    const handleFocus = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        handleCheckAndImportFromGoogleSheet(false);
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleFocus);
+
+    // 3. Verificação periódica a cada 35 segundos caso a aba permaneça aberta
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        handleCheckAndImportFromGoogleSheet(false);
+      }
+    }, 35000);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleFocus);
+      clearInterval(interval);
+    };
+  }, [googleUser?.uid, googleAccessToken, handleCheckAndImportFromGoogleSheet]);
 
   // --- Initialization Effect ---
   useEffect(() => {
@@ -1481,6 +1595,7 @@ const App: React.FC = () => {
                     onDisconnectGoogle={handleDisconnectGoogle}
                     onSyncAllToGoogleSheets={handleSyncAllToGoogleSheets}
                     onAuthorizeGoogleSheets={handleAuthorizeGoogleSheets}
+                    onCheckAndImportFromGoogleSheet={handleCheckAndImportFromGoogleSheet}
                     onUpdateSpreadsheetUrl={setSpreadsheetUrl}
                     professionalSegment={professionalSegment}
                     customSegmentName={customSegmentName}
@@ -1665,6 +1780,33 @@ const App: React.FC = () => {
                 {renderContent()}
             </div>
         </main>
+
+        {/* Notificação Flutuante de Sincronização Automática com a Planilha */}
+        {sheetAutoSyncNotice && (
+          <aside 
+            aria-label="Notificação de Sincronização da Planilha"
+            className="fixed bottom-5 right-5 z-50 max-w-md bg-emerald-900 text-white px-4 py-3.5 rounded-2xl shadow-2xl border border-emerald-400/40 flex items-start gap-3 animate-in fade-in slide-in-from-bottom-5 duration-300"
+          >
+            <div className="p-2 bg-emerald-800 rounded-xl flex-shrink-0 mt-0.5 shadow-inner">
+              <RefreshCw className="w-5 h-5 text-emerald-300 animate-spin" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <h4 className="text-sm font-bold text-emerald-100">Planilha Google Sincronizada</h4>
+                <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-emerald-700 text-emerald-200">Auto</span>
+              </div>
+              <p className="text-xs text-emerald-200/90 mt-1 leading-relaxed">{sheetAutoSyncNotice}</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSheetAutoSyncNotice(null)}
+              className="text-emerald-300 hover:text-white text-xs font-bold p-1 rounded-lg hover:bg-emerald-800 transition"
+              aria-label="Fechar"
+            >
+              ✕
+            </button>
+          </aside>
+        )}
     </div>
   );
 };
