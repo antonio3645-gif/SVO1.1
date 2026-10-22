@@ -24,14 +24,17 @@ interface QuotesProps {
   deleteQuote: (id: string) => void;
   editQuote: (id: string) => void;
   companyInfo: CompanyInfo | null;
+  preSelectedClientId?: string | null;
+  onClearPreSelectedClientId?: () => void;
 }
 
 const Quotes: React.FC<QuotesProps> = ({ 
   clients, products, logo, quoteSettings, saveQuote, quoteToEdit, clearQuoteToEdit,
-  savedQuotes, deleteQuote, editQuote, companyInfo 
+  savedQuotes, deleteQuote, editQuote, companyInfo,
+  preSelectedClientId, onClearPreSelectedClientId
 }) => {
   // State for new quote
-  const [selectedClientId, setSelectedClientId] = useState<string>('');
+  const [selectedClientId, setSelectedClientId] = useState<string>(() => preSelectedClientId || '');
   const [quoteDate, setQuoteDate] = useState<string>(() => {
       const d = new Date();
       return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
@@ -130,6 +133,14 @@ const Quotes: React.FC<QuotesProps> = ({
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [quoteToEdit, clearQuoteToEdit, quoteSettings.defaultNotes]);
+
+  useEffect(() => {
+    if (preSelectedClientId) {
+      setSelectedClientId(preSelectedClientId);
+      onClearPreSelectedClientId?.();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  }, [preSelectedClientId, onClearPreSelectedClientId]);
 
 
   const handleLoadDraft = () => {

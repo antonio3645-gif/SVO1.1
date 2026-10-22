@@ -30,6 +30,7 @@ import {
   appendQuoteToGoogleSheet, 
   fullSyncToGoogleSheet, 
   importFromGoogleSheet,
+  updateProductsTabInGoogleSheet,
   getSavedSpreadsheetUrl,
   ensureDatabaseSpreadsheet 
 } from './googleSheetsService';
@@ -91,6 +92,7 @@ const App: React.FC = () => {
     nextQuoteNumber: 1,
   });
   const [quoteToEdit, setQuoteToEdit] = useState<SavedQuote | null>(null);
+  const [preSelectedClientId, setPreSelectedClientId] = useState<string | null>(null);
 
   // --- Professional Segment State ---
   const [professionalSegment, setProfessionalSegment] = useState<string>(() => {
@@ -1205,42 +1207,65 @@ const App: React.FC = () => {
   };
 
   const saveQuote = (quoteData: Omit<SavedQuote, 'id'>) => {
-    // Stock Check
-    if (!quoteSettings.allowQuoteWithoutStock) {
-        for (const item of quoteData.items) {
-             if (item.product.type === 'service') continue;
-             const product = products.find(p => p.id === item.product.id);
-             if (!product || item.quantity > product.stock) {
-                 alert(`Estoque insuficiente para "${item.product.name}". Apenas ${product?.stock || 0} disponível(is).`);
-                 return;
-             }
+    // 1. Calculate total quantities to deduct for each product (supporting multiple rows of the same product)
+    const qtyToDeductMap = new Map<string, number>();
+    let totalItemsDeducted = 0;
+
+    quoteData.items.forEach(item => {
+      if (item.product && item.product.type !== 'service') {
+        const qty = Number(item.quantity) || 0;
+        if (qty > 0) {
+          const current = qtyToDeductMap.get(item.product.id) || 0;
+          qtyToDeductMap.set(item.product.id, current + qty);
+          totalItemsDeducted += qty;
         }
+      }
+    });
+
+    // 2. Stock Check if quote without stock is disabled
+    if (!quoteSettings.allowQuoteWithoutStock) {
+      for (const [prodId, neededQty] of qtyToDeductMap.entries()) {
+        const product = products.find(p => p.id === prodId);
+        const currentStock = Number(product?.stock) || 0;
+        if (!product || neededQty > currentStock) {
+          alert(`Estoque insuficiente para "${product?.name || 'Item'}". Necessário: ${neededQty}, Disponível em estoque: ${currentStock}.`);
+          return;
+        }
+      }
     }
 
-    // Deduct Stock
+    // 3. Deduct Stock as a sale (baixa de estoque referente à venda)
+    const nowIso = new Date().toISOString();
     const updatedProducts = products.map(p => {
-        const itemInQuote = quoteData.items.find(i => i.product.id === p.id);
-        if (itemInQuote && p.type !== 'service') {
-            return { ...p, stock: p.stock - itemInQuote.quantity };
-        }
-        return p;
+      const qtyToDeduct = qtyToDeductMap.get(p.id);
+      if (qtyToDeduct !== undefined && p.type !== 'service') {
+        const currentStock = Number(p.stock) || 0;
+        return { 
+          ...p, 
+          stock: Math.max(0, currentStock - qtyToDeduct),
+          updatedAt: nowIso
+        };
+      }
+      return p;
     });
+
     setProducts(updatedProducts);
+    productsRef.current = updatedProducts;
     safeSetItem('products', JSON.stringify(updatedProducts));
     saveToIndexedDB('products', updatedProducts);
 
-    // Determine quote number
+    // 4. Determine quote number
     let assignedNumber = quoteData.number;
     let currentSettings = { ...quoteSettings };
     if (currentSettings.enableSequentialNumber !== false && !assignedNumber) {
-        assignedNumber = currentSettings.nextQuoteNumber || 1;
-        const newNextNumber = assignedNumber + 1;
-        currentSettings = { ...currentSettings, nextQuoteNumber: newNextNumber };
-        setQuoteSettings(currentSettings);
-        safeSetItem('quoteSettings', JSON.stringify(currentSettings));
+      assignedNumber = currentSettings.nextQuoteNumber || 1;
+      const newNextNumber = assignedNumber + 1;
+      currentSettings = { ...currentSettings, nextQuoteNumber: newNextNumber };
+      setQuoteSettings(currentSettings);
+      safeSetItem('quoteSettings', JSON.stringify(currentSettings));
     }
 
-    // Save Quote - Sanitize product images in quote items to prevent quota issues
+    // 5. Sanitize product images in quote items to prevent quota issues
     const sanitizedItems = quoteData.items.map(i => ({
       ...i,
       product: {
@@ -1250,35 +1275,94 @@ const App: React.FC = () => {
     }));
 
     const newQuote: SavedQuote = { 
-        ...quoteData, 
-        items: sanitizedItems as any,
-        number: assignedNumber,
-        id: crypto.randomUUID(),
-        createdAt: quoteData.createdAt || new Date().toISOString() 
+      ...quoteData, 
+      items: sanitizedItems as any,
+      number: assignedNumber,
+      id: crypto.randomUUID(),
+      createdAt: quoteData.createdAt || nowIso 
     };
+
     const updatedQuotes = [...savedQuotes, newQuote];
     setSavedQuotes(updatedQuotes);
+    savedQuotesRef.current = updatedQuotes;
     safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
     saveToIndexedDB('savedQuotes', updatedQuotes);
+
+    // 6. Push to Cloud / Firestore
     pushToCloud(clients, updatedProducts, updatedQuotes, companyInfo, currentSettings);
 
-    // Auto-save new quote (with client name and all product items) to Google Sheets in the user's Google Drive
+    // 7. Auto-save new quote AND update product stock in Google Sheets
     const token = googleAccessToken || getGoogleAccessToken();
     if (token) {
       appendQuoteToGoogleSheet(token, newQuote, googleUser?.uid).catch((err) => {
         console.warn('Não foi possível salvar o orçamento na planilha Google:', err);
       });
+      if (qtyToDeductMap.size > 0) {
+        updateProductsTabInGoogleSheet(token, updatedProducts, googleUser?.uid).catch((err) => {
+          console.warn('Não foi possível atualizar o estoque na planilha Google:', err);
+        });
+      }
     }
 
-    alert('Orçamento salvo com sucesso!');
+    const numStr = assignedNumber ? `Nº ${String(assignedNumber).padStart(4, '0')}` : '';
+    const stockMsg = qtyToDeductMap.size > 0 
+      ? `\n\n📦 Baixa efetuada no estoque de ${qtyToDeductMap.size} produto(s) (${totalItemsDeducted} unidade(s) debitada(s) como venda).`
+      : '';
+    alert(`✅ Orçamento ${numStr} salvo com sucesso!${stockMsg}`);
   };
 
   const deleteQuote = (id: string) => {
+    const quoteToDelete = savedQuotes.find((q) => q.id === id);
+    let updatedProducts = products;
+
+    // Restore stock if quote had products
+    if (quoteToDelete && quoteToDelete.items) {
+      const qtyToReturnMap = new Map<string, number>();
+      quoteToDelete.items.forEach(item => {
+        if (item.product && item.product.type !== 'service') {
+          const qty = Number(item.quantity) || 0;
+          if (qty > 0) {
+            const current = qtyToReturnMap.get(item.product.id) || 0;
+            qtyToReturnMap.set(item.product.id, current + qty);
+          }
+        }
+      });
+
+      if (qtyToReturnMap.size > 0) {
+        updatedProducts = products.map(p => {
+          const qtyToReturn = qtyToReturnMap.get(p.id);
+          if (qtyToReturn !== undefined && p.type !== 'service') {
+            const currentStock = Number(p.stock) || 0;
+            return {
+              ...p,
+              stock: currentStock + qtyToReturn,
+              updatedAt: new Date().toISOString()
+            };
+          }
+          return p;
+        });
+
+        setProducts(updatedProducts);
+        productsRef.current = updatedProducts;
+        safeSetItem('products', JSON.stringify(updatedProducts));
+        saveToIndexedDB('products', updatedProducts);
+
+        const token = googleAccessToken || getGoogleAccessToken();
+        if (token) {
+          updateProductsTabInGoogleSheet(token, updatedProducts, googleUser?.uid).catch((err) => {
+            console.warn('Não foi possível sincronizar devolução de estoque na planilha Google:', err);
+          });
+        }
+      }
+    }
+
     const updatedQuotes = savedQuotes.filter((q) => q.id !== id);
     setSavedQuotes(updatedQuotes);
+    savedQuotesRef.current = updatedQuotes;
     safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
     saveToIndexedDB('savedQuotes', updatedQuotes);
-    pushToCloud(clients, products, updatedQuotes, companyInfo, quoteSettings);
+    pushToCloud(clients, updatedProducts, updatedQuotes, companyInfo, quoteSettings);
+
     if (quoteToEdit && quoteToEdit.id === id) {
       setQuoteToEdit(null);
     }
@@ -1288,11 +1372,47 @@ const App: React.FC = () => {
     const quote = savedQuotes.find(q => q.id === quoteId);
     if (quote) {
       setQuoteToEdit(quote);
+
+      // Restore stock of the quote being edited so saving the edited version deducts properly
+      let updatedProducts = products;
+      if (quote.items) {
+        const qtyToReturnMap = new Map<string, number>();
+        quote.items.forEach(item => {
+          if (item.product && item.product.type !== 'service') {
+            const qty = Number(item.quantity) || 0;
+            if (qty > 0) {
+              const current = qtyToReturnMap.get(item.product.id) || 0;
+              qtyToReturnMap.set(item.product.id, current + qty);
+            }
+          }
+        });
+
+        if (qtyToReturnMap.size > 0) {
+          updatedProducts = products.map(p => {
+            const qtyToReturn = qtyToReturnMap.get(p.id);
+            if (qtyToReturn !== undefined && p.type !== 'service') {
+              const currentStock = Number(p.stock) || 0;
+              return {
+                ...p,
+                stock: currentStock + qtyToReturn,
+                updatedAt: new Date().toISOString()
+              };
+            }
+            return p;
+          });
+          setProducts(updatedProducts);
+          productsRef.current = updatedProducts;
+          safeSetItem('products', JSON.stringify(updatedProducts));
+          saveToIndexedDB('products', updatedProducts);
+        }
+      }
+
       const updatedQuotes = savedQuotes.filter(q => q.id !== quoteId);
       setSavedQuotes(updatedQuotes);
+      savedQuotesRef.current = updatedQuotes;
       safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
       saveToIndexedDB('savedQuotes', updatedQuotes);
-      pushToCloud(clients, products, updatedQuotes, companyInfo, quoteSettings);
+      pushToCloud(clients, updatedProducts, updatedQuotes, companyInfo, quoteSettings);
     }
   };
 

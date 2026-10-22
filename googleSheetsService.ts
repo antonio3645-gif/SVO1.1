@@ -407,6 +407,59 @@ export const appendProductsToGoogleSheet = async (
 };
 
 /**
+ * Updates the 'Produtos & Serviços' tab in Google Sheets with fresh product stocks.
+ */
+export const updateProductsTabInGoogleSheet = async (
+  accessToken: string,
+  products: Product[],
+  userId?: string
+): Promise<void> => {
+  if (products.length === 0) return;
+  const { id: spreadsheetId } = await ensureDatabaseSpreadsheet(accessToken, userId);
+  const now = new Date().toLocaleString('pt-BR');
+
+  const productRows = products.map(p => {
+    const hasDiscount = typeof p.discountPercent === 'number' && p.discountPercent > 0;
+    const discountedPrice = hasDiscount ? p.sellPrice * (1 - p.discountPercent! / 100) : p.sellPrice;
+    return [
+      p.code || '',
+      p.internalCode || '',
+      p.type === 'service' ? 'Serviço' : 'Produto',
+      p.name || '',
+      p.sector || '',
+      formatBRL(p.costPrice),
+      formatBRL(p.sellPrice),
+      hasDiscount ? `${p.discountPercent}%` : '-',
+      hasDiscount ? formatBRL(discountedPrice) : formatBRL(p.sellPrice),
+      p.type === 'service' ? '-' : (p.stock ?? 0),
+      p.observation || '',
+      now,
+    ];
+  });
+
+  // Clear existing product rows below headers
+  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'Produtos %26 Serviços'!A2:L:clear`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+  });
+
+  // Write updated product rows
+  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'Produtos %26 Serviços'!A2?valueInputOption=USER_ENTERED`, {
+    method: 'PUT',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      values: productRows,
+    }),
+  });
+};
+
+/**
  * Appends a new client to the Google Sheet.
  */
 export const appendClientToGoogleSheet = async (

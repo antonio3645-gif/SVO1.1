@@ -1,20 +1,49 @@
 
-import React, { useState } from 'react';
-import type { Client } from '../types';
+import React, { useState, useMemo } from 'react';
+import type { Client, SavedQuote, QuoteSettings, CompanyInfo } from '../types';
 import { UserPlusIcon } from './icons/UserPlusIcon';
 import { FileDownIcon } from './icons/FileDownIcon';
 import { PencilIcon } from './icons/PencilIcon';
 import { TrashIcon } from './icons/TrashIcon';
 import { SearchIcon } from './icons/SearchIcon';
+import { 
+  FileText, Plus, X, Printer, ExternalLink, Calendar, 
+  DollarSign, Package, Phone, Mail, MapPin, Tag, Share2, 
+  Sparkles, Layers, CheckCircle2 
+} from 'lucide-react';
+import { 
+  generateQuoteHTML, 
+  printQuoteHtml, 
+  exportQuotePdfDirect, 
+  sendQuoteWhatsAppDirect, 
+  formatDateTime 
+} from '../utils/quoteExportService';
 
 interface ClientsProps {
   clients: Client[];
   addClient: (client: Omit<Client, 'id'>) => void;
   updateClient: (client: Client) => void;
   deleteClient: (id: string) => void;
+  savedQuotes?: SavedQuote[];
+  quoteSettings?: QuoteSettings;
+  companyInfo?: CompanyInfo | null;
+  logo?: string | null;
+  onOpenQuote?: (quote: SavedQuote) => void;
+  onNewQuoteForClient?: (client: Client) => void;
 }
 
-const Clients: React.FC<ClientsProps> = ({ clients, addClient, updateClient, deleteClient }) => {
+const Clients: React.FC<ClientsProps> = ({ 
+  clients, 
+  addClient, 
+  updateClient, 
+  deleteClient,
+  savedQuotes = [],
+  quoteSettings,
+  companyInfo = null,
+  logo = null,
+  onOpenQuote,
+  onNewQuoteForClient
+}) => {
   // Helper to generate the next available code
   const getNextCode = () => {
     if (clients.length === 0) return '0001';
