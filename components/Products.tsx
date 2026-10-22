@@ -1476,12 +1476,12 @@ const Products: React.FC<ProductsProps> = ({
             {type === 'product' && (
                 <div>
                     <label htmlFor="costPrice" className="block text-sm font-medium text-slate-700">Custo (R$)</label>
-                    <input type="number" step="0.01" id="costPrice" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" required />
+                    <input type="number" step="0.01" id="costPrice" value={costPrice} onChange={(e) => setCostPrice(e.target.value)} onWheel={(e) => e.currentTarget.blur()} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" required />
                 </div>
             )}
             <div>
               <label htmlFor="sellPrice" className="block text-sm font-medium text-slate-700">{type === 'product' ? 'Venda (R$)' : 'Valor Mão de Obra (R$)'}</label>
-              <input type="number" step="0.01" id="sellPrice" value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" required />
+              <input type="number" step="0.01" id="sellPrice" value={sellPrice} onChange={(e) => setSellPrice(e.target.value)} onWheel={(e) => e.currentTarget.blur()} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" required />
             </div>
             {quoteSettings.showItemDiscountPercent && (
               <div>
@@ -1494,8 +1494,9 @@ const Products: React.FC<ProductsProps> = ({
                   id="discountPercent" 
                   value={discountPercent} 
                   onChange={(e) => setDiscountPercent(e.target.value)} 
+                  onWheel={(e) => e.currentTarget.blur()}
                   placeholder="Ex: 10" 
-                  className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" 
+                  className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
                 />
               </div>
             )}
@@ -1524,7 +1525,7 @@ const Products: React.FC<ProductsProps> = ({
           {type === 'product' && (
             <div>
                 <label htmlFor="stock" className="block text-sm font-medium text-slate-700">Quantidade em Estoque</label>
-                <input type="number" id="stock" value={stock} onChange={(e) => setStock(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" required />
+                <input type="number" id="stock" value={stock} onChange={(e) => setStock(e.target.value)} onWheel={(e) => e.currentTarget.blur()} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" required />
             </div>
           )}
           <div>
@@ -1658,19 +1659,19 @@ const Products: React.FC<ProductsProps> = ({
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
                     <div>
                         <label htmlFor="minCostPrice" className="block text-sm font-medium text-slate-700">Custo Mín. (R$)</label>
-                        <input type="number" step="0.01" id="minCostPrice" value={minCostPrice} onChange={(e) => setMinCostPrice(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" placeholder="0.00" />
+                        <input type="number" step="0.01" id="minCostPrice" value={minCostPrice} onChange={(e) => setMinCostPrice(e.target.value)} onWheel={(e) => e.currentTarget.blur()} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="0.00" />
                     </div>
                     <div>
                         <label htmlFor="maxCostPrice" className="block text-sm font-medium text-slate-700">Custo Máx. (R$)</label>
-                        <input type="number" step="0.01" id="maxCostPrice" value={maxCostPrice} onChange={(e) => setMaxCostPrice(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" placeholder="100.00" />
+                        <input type="number" step="0.01" id="maxCostPrice" value={maxCostPrice} onChange={(e) => setMaxCostPrice(e.target.value)} onWheel={(e) => e.currentTarget.blur()} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="100.00" />
                     </div>
                      <div>
                         <label htmlFor="minSellPrice" className="block text-sm font-medium text-slate-700">Venda Mín. (R$)</label>
-                        <input type="number" step="0.01" id="minSellPrice" value={minSellPrice} onChange={(e) => setMinSellPrice(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" placeholder="0.00" />
+                        <input type="number" step="0.01" id="minSellPrice" value={minSellPrice} onChange={(e) => setMinSellPrice(e.target.value)} onWheel={(e) => e.currentTarget.blur()} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="0.00" />
                     </div>
                     <div>
                         <label htmlFor="maxSellPrice" className="block text-sm font-medium text-slate-700">Venda Máx. (R$)</label>
-                        <input type="number" step="0.01" id="maxSellPrice" value={maxSellPrice} onChange={(e) => setMaxSellPrice(e.target.value)} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500]" placeholder="200.00" />
+                        <input type="number" step="0.01" id="maxSellPrice" value={maxSellPrice} onChange={(e) => setMaxSellPrice(e.target.value)} onWheel={(e) => e.currentTarget.blur()} className="mt-1 block w-full px-3 py-2 bg-white border border-slate-300 rounded-md shadow-sm focus:outline-none focus:ring-[--color-primary-500] focus:border-[--color-primary-500] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" placeholder="200.00" />
                     </div>
                 </div>
                 <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-2">

@@ -838,7 +838,8 @@ const Settings: React.FC<SettingsProps> = ({
                             min="1"
                             value={quoteSettings.nextQuoteNumber || 1}
                             onChange={(e) => onSetQuoteSettings({ ...quoteSettings, nextQuoteNumber: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-                            className="w-28 px-3 py-1.5 border border-slate-300 rounded-md text-sm font-bold text-slate-800 text-center focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
+                            onWheel={(e) => e.currentTarget.blur()}
+                            className="w-28 px-3 py-1.5 border border-slate-300 rounded-md text-sm font-bold text-slate-800 text-center focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                     </div>
                 )}

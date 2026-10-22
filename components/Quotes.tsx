@@ -888,7 +888,8 @@ const Quotes: React.FC<QuotesProps> = ({
                             min="1" 
                             value={productQuantity} 
                             onChange={(e) => setProductQuantity(parseInt(e.target.value) || 1)}
-                            className="w-20 border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
+                            onWheel={(e) => e.currentTarget.blur()}
+                            className="w-20 border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                         <button 
                             onClick={() => handleAddItem(selectedProductId, productQuantity, 'product')}
@@ -940,7 +941,8 @@ const Quotes: React.FC<QuotesProps> = ({
                             min="1" 
                             value={serviceQuantity} 
                             onChange={(e) => setServiceQuantity(parseInt(e.target.value) || 1)}
-                            className="w-20 border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
+                            onWheel={(e) => e.currentTarget.blur()}
+                            className="w-20 border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                         />
                         <button 
                              onClick={() => handleAddItem(selectedServiceId, serviceQuantity, 'service')}
@@ -976,7 +978,8 @@ const Quotes: React.FC<QuotesProps> = ({
                     step="any"
                     value={discount} 
                     onChange={(e) => setDiscount(e.target.value)}
-                    className="w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
+                    onWheel={(e) => e.currentTarget.blur()}
+                    className="w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[--color-primary-500] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     placeholder="0.00"
                 />
             </div>
