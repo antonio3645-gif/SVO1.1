@@ -10,6 +10,9 @@ import { TrashIcon } from './icons/TrashIcon';
 import { PencilIcon } from './icons/PencilIcon';
 import { WhatsAppIcon } from './icons/WhatsAppIcon';
 import { ProductImageZoom } from './ProductImageZoom';
+import { FileText, X, Calendar, ExternalLink } from 'lucide-react';
+import { SearchableCombobox } from './SearchableCombobox';
+import { generateQuoteHTML as generateSharedQuoteHTML } from '../utils/quoteExportService';
 
 
 interface QuotesProps {
@@ -69,6 +72,7 @@ const Quotes: React.FC<QuotesProps> = ({
   const [dateFilter, setDateFilter] = useState('');
   const [valueFilter, setValueFilter] = useState('');
   const [isSavedQuotesModalOpen, setIsSavedQuotesModalOpen] = useState(false);
+  const [isClientHistoryModalOpen, setIsClientHistoryModalOpen] = useState(false);
   const printRef = useRef<HTMLDivElement>(null);
 
 
@@ -161,10 +165,81 @@ const Quotes: React.FC<QuotesProps> = ({
   };
 
   const selectedClient = useMemo(() => clients.find(c => c.id === selectedClientId), [clients, selectedClientId]);
+
+  const selectedClientQuotes = useMemo(() => {
+    if (!selectedClient) return [];
+    return savedQuotes.filter(q => {
+      const matchId = Boolean(q.client?.id && q.client.id === selectedClient.id);
+      const matchName = Boolean(
+        q.client?.name && 
+        selectedClient.name && 
+        q.client.name.trim().toLowerCase() === selectedClient.name.trim().toLowerCase()
+      );
+      const matchCode = Boolean(
+        q.client?.code && 
+        selectedClient.code && 
+        q.client.code.trim().toLowerCase() === selectedClient.code.trim().toLowerCase()
+      );
+      return matchId || matchName || matchCode;
+    });
+  }, [savedQuotes, selectedClient]);
   
   // Filter lists for dropdowns
   const productList = useMemo(() => products.filter(p => p.type !== 'service'), [products]);
   const serviceList = useMemo(() => products.filter(p => p.type === 'service'), [products]);
+
+  // Options prepared for SearchableCombobox (supports search by name, code, internalCode, sector)
+  const clientComboboxOptions = useMemo(() => {
+    return clients.map(c => {
+      const doc = c.cnpj || c.cpf || '';
+      const phone = c.phone || '';
+      const city = c.city ? ` - ${c.city}` : '';
+      const extraInfo = [doc, phone, city].filter(Boolean).join(' • ');
+      return {
+        id: c.id,
+        name: c.name,
+        code: c.code,
+        extraInfo,
+      };
+    });
+  }, [clients]);
+
+  const productComboboxOptions = useMemo(() => {
+    return productList.map(p => {
+      const hasDiscount = Boolean(p.discountPercent && p.discountPercent > 0);
+      const finalPrice = hasDiscount ? p.sellPrice * (1 - p.discountPercent! / 100) : p.sellPrice;
+      return {
+        id: p.id,
+        name: p.name,
+        code: p.code,
+        internalCode: p.internalCode,
+        sector: p.sector,
+        price: finalPrice,
+        stock: p.stock ?? 0,
+        type: 'product' as const,
+        discountPercent: p.discountPercent,
+        extraInfo: p.observation || undefined,
+      };
+    });
+  }, [productList]);
+
+  const serviceComboboxOptions = useMemo(() => {
+    return serviceList.map(s => {
+      const hasDiscount = Boolean(s.discountPercent && s.discountPercent > 0);
+      const finalPrice = hasDiscount ? s.sellPrice * (1 - s.discountPercent! / 100) : s.sellPrice;
+      return {
+        id: s.id,
+        name: s.name,
+        code: s.code,
+        internalCode: s.internalCode,
+        sector: s.sector,
+        price: finalPrice,
+        type: 'service' as const,
+        discountPercent: s.discountPercent,
+        extraInfo: s.observation || undefined,
+      };
+    });
+  }, [serviceList]);
 
   // Derived lists for rendering
   const productItems = useMemo(() => quoteItems.filter(i => i.product.type !== 'service'), [quoteItems]);
@@ -502,135 +577,8 @@ const Quotes: React.FC<QuotesProps> = ({
   }, [savedQuotes, searchTerm, numberFilter, nameFilter, dateFilter, valueFilter]);
 
   const generateQuoteHTML = (quote: SavedQuote): string => {
-    const quoteNumText = quote.number 
-      ? `Nº ${String(quote.number).padStart(4, '0')}` 
-      : (quoteSettings.enableSequentialNumber !== false ? `Nº ${String(quoteSettings.nextQuoteNumber || 1).padStart(4, '0')}` : '');
-
-    const formattedDate = formatDateTime(quote.createdAt);
-
-    const itemsRows = quote.items.map(item => `
-      <tr style="border-bottom: 1px solid #f1f5f9;">
-        <td style="padding: 4px 6px; text-align: center; font-size: 12px; vertical-align: middle;">${item.quantity}</td>
-        ${quoteSettings.showProductImage ? `<td style="padding: 4px 6px; text-align: center; vertical-align: middle; width: 50px;">${item.product.image ? `<img src="${item.product.image}" alt="${item.product.name}" style="max-height: 40px; max-width: 40px; object-fit: contain; display: block; margin: 0 auto; border-radius: 4px;" />` : '-'}</td>` : ''}
-        ${quoteSettings.showProductCode ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569; vertical-align: middle;">${item.product.code || '-'}</td>` : ''}
-        ${quoteSettings.showProductInternalCode ? `<td style="padding: 4px 6px; font-size: 12px; font-weight: 600; color: #4338ca; vertical-align: middle;">${item.product.internalCode || '-'}</td>` : ''}
-        ${quoteSettings.showProductSector ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569; vertical-align: middle;">${item.product.sector || '-'}</td>` : ''}
-        <td style="padding: 4px 6px; font-size: 12px; vertical-align: middle;">
-          ${item.product.name}
-          ${item.product.discountPercent && item.product.discountPercent > 0 ? `<div style="font-size: 10px; color: #059669; font-weight: bold; margin-top: 1px;">(Desconto de ${item.product.discountPercent}% já aplicado)</div>` : ''}
-        </td>
-        <td style="padding: 4px 6px; text-align: right; font-size: 12px; vertical-align: middle;">${item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-        <td style="padding: 4px 6px; text-align: right; font-size: 12px; vertical-align: middle;">${(item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-      </tr>
-    `).join('');
-
-    const subtotalVal = quote.subtotal || (quote.finalTotal + (quote.discountAmount || 0));
-    const discountVal = quote.discountAmount || 0;
-    const formattedSubtotal = subtotalVal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const formattedDiscount = discountVal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const formattedTotal = quote.finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const discountLabel = quote.discountType === 'percent' && parseFloat(quote.discount || '0') > 0
-      ? `Desconto (${quote.discount}%)`
-      : 'Desconto';
-
-    let headerHtml = '';
-    if (quoteSettings.text) {
-      headerHtml = `
-        <div style="white-space: pre-wrap; line-height: 1.25; color: #0f172a; font-family: ${quoteSettings.fontFamily || 'sans-serif'}; text-align: ${quoteSettings.textAlign || 'center'}; font-size: ${quoteSettings.fontSize ? quoteSettings.fontSize + 'px' : '12px'};">
-          ${quoteSettings.text}
-        </div>
-      `;
-    } else if (companyInfo?.name) {
-      headerHtml = `
-        <div style="text-align: center; font-size: 11px; line-height: 1.25; color: #0f172a; font-family: sans-serif;">
-          <div style="font-weight: bold; font-size: 12px; text-transform: uppercase; letter-spacing: 0.025em; margin-bottom: 2px;">-- ${companyInfo.name.toUpperCase()} --</div>
-          ${companyInfo.address ? `<div>${companyInfo.address}</div>` : ''}
-          ${companyInfo.phone ? `<div>${companyInfo.phone}</div>` : ''}
-          ${companyInfo.email ? `<div>${companyInfo.email}</div>` : ''}
-          ${(companyInfo.zipCode || companyInfo.city) ? `<div>CEP ${companyInfo.zipCode || ''} ${companyInfo.city ? '- ' + companyInfo.city : ''}</div>` : ''}
-          ${companyInfo.cnpj ? `<div>CNPJ: ${companyInfo.cnpj}</div>` : ''}
-        </div>
-      `;
-    }
-
-    return `
-      <div style="padding: 24px; font-family: sans-serif; font-size: 12px; color: #0f172a; background: #ffffff; width: 800px; box-sizing: border-box;">
-        <!-- Header -->
-        <div style="position: relative; margin-bottom: 8px; min-height: 60px;">
-          ${logo ? `<div style="position: absolute; left: 0; top: 0;"><img src="${logo}" alt="Logo" style="max-height: 56px; max-width: 120px; object-fit: contain;"/></div>` : ''}
-          ${headerHtml}
-        </div>
-
-        <!-- Document Title -->
-        <div style="text-align: center; font-weight: bold; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-top: 12px; margin-bottom: 12px; color: #0f172a;">
-          ORÇAMENTO
-        </div>
-
-        <!-- Client Data -->
-        <div style="font-size: 12px; line-height: 1.5; margin-bottom: 12px; color: #0f172a;">
-          <div><strong>Para :</strong> ${quote.client.name}</div>
-          ${quote.client.address ? `<div><strong>End. :</strong> ${quote.client.address}${quote.client.city ? ' - ' + quote.client.city : ''}${quote.client.zipCode ? ' - CEP ' + quote.client.zipCode : ''}</div>` : ''}
-          ${quote.client.phone ? `<div><strong>Tel. :</strong> ${quote.client.phone}</div>` : ''}
-          ${quote.client.type === 'juridical' && quote.client.cnpj ? `<div><strong>CNPJ :</strong> ${quote.client.cnpj}</div>` : (quote.client.cpf ? `<div><strong>CPF :</strong> ${quote.client.cpf}</div>` : '')}
-        </div>
-
-        <!-- Quote Info & Page/Via -->
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; font-size: 12px; margin-bottom: 12px; color: #0f172a;">
-          <div>
-            <div><strong>Orçamento</strong> ${quoteNumText}</div>
-            <div>${formattedDate}</div>
-          </div>
-          <div style="text-align: right;">
-            <div>Página 1</div>
-            <div>Via 1</div>
-          </div>
-        </div>
-
-        <!-- Table -->
-        <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 8px;">
-          <thead>
-            <tr style="border-top: 1px solid #334155; border-bottom: 1px solid #334155; text-align: left;">
-              <th style="padding: 4px 6px; width: 64px; font-weight: normal; color: #0f172a;">Quantidade</th>
-              ${quoteSettings.showProductImage ? '<th style="padding: 4px 6px; width: 50px; font-weight: normal; color: #0f172a; text-align: center;">Imagem</th>' : ''}
-              ${quoteSettings.showProductCode ? '<th style="padding: 4px 6px; width: 112px; font-weight: normal; color: #0f172a;">Código</th>' : ''}
-              ${quoteSettings.showProductInternalCode ? '<th style="padding: 4px 6px; width: 100px; font-weight: normal; color: #0f172a;">Cód. Interno</th>' : ''}
-              ${quoteSettings.showProductSector ? '<th style="padding: 4px 6px; width: 80px; font-weight: normal; color: #0f172a;">Setor</th>' : ''}
-              <th style="padding: 4px 6px; font-weight: normal; color: #0f172a;">Descrição</th>
-              <th style="padding: 4px 6px; width: 96px; text-align: right; font-weight: normal; color: #0f172a;">Valor Unitário</th>
-              <th style="padding: 4px 6px; width: 96px; text-align: right; font-weight: normal; color: #0f172a;">Valor Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${itemsRows}
-          </tbody>
-        </table>
-
-        <!-- Total & Notes Footer -->
-        <div style="border-top: 1px solid #334155; padding-top: 8px; font-size: 12px; color: #0f172a;">
-          ${discountVal > 0 ? `
-            <div style="text-align: right; margin-bottom: 2px; color: #475569;">
-              Subtotal &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ ${formattedSubtotal}
-            </div>
-            <div style="text-align: right; margin-bottom: 4px; color: #dc2626; font-weight: 500;">
-              ${discountLabel} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - R$ ${formattedDiscount}
-            </div>
-            <div style="text-align: right; font-weight: bold; font-size: 14px; margin-bottom: 12px; border-top: 1px solid #e2e8f0; padding-top: 4px;">
-              Total &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ ${formattedTotal}
-            </div>
-          ` : `
-            <div style="text-align: right; font-weight: bold; font-size: 14px; margin-bottom: 12px;">
-              Total &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ ${formattedTotal}
-            </div>
-          `}
-          ${quote.notes ? `
-            <div style="margin-top: 4px;">
-              <div style="white-space: pre-wrap; font-size: 12px; color: #334155;">${quote.notes}</div>
-            </div>
-          ` : ''}
-        </div>
-      </div>
-    `;
-  }
+    return generateSharedQuoteHTML(quote, quoteSettings, companyInfo, logo);
+  };
   
   const handlePrintSavedQuote = (quote: SavedQuote) => {
     const printContent = generateQuoteHTML(quote);
@@ -842,42 +790,70 @@ const Quotes: React.FC<QuotesProps> = ({
             </div>
          )}
 
-         <div className="space-y-4">
+          <div className="space-y-4">
             <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Cliente</label>
-                <select 
-                    value={selectedClientId} 
-                    onChange={(e) => setSelectedClientId(e.target.value)}
-                    className="w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
-                >
-                    <option value="">Selecione um cliente...</option>
-                    {clients.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.code ? `[${c.code}] ${c.name}` : c.name}
-                      </option>
-                    ))}
-                </select>
+                <SearchableCombobox 
+                    placeholder="Selecione ou busque um cliente..."
+                    searchPlaceholder="Buscar cliente por nome, código, CPF/CNPJ..."
+                    options={clientComboboxOptions}
+                    value={selectedClientId}
+                    onChange={(id) => setSelectedClientId(id)}
+                    itemType="client"
+                />
+
+                {selectedClient && (
+                  <div className="mt-2 p-2 bg-sky-50 border border-sky-200 rounded-lg flex items-center justify-between text-xs text-sky-900">
+                    <div className="flex items-center gap-1.5 font-medium">
+                      <FileText className="w-4 h-4 text-sky-600 shrink-0" />
+                      <span>
+                        {selectedClientQuotes.length === 0 
+                          ? 'Sem orçamentos anteriores' 
+                          : `${selectedClientQuotes.length} orçamento(s) já emitido(s)`}
+                      </span>
+                    </div>
+                    {selectedClientQuotes.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setIsClientHistoryModalOpen(true)}
+                        className="font-bold text-sky-700 hover:text-sky-900 underline hover:no-underline cursor-pointer"
+                      >
+                        Ver Histórico &rarr;
+                      </button>
+                    )}
+                  </div>
+                )}
             </div>
             
             <div className="pt-4 border-t border-slate-100">
                 <h3 className="text-sm font-semibold text-slate-900 mb-3">Adicionar Produto</h3>
                 <div className="space-y-3">
-                    <select 
-                        value={selectedProductId} 
-                        onChange={(e) => setSelectedProductId(e.target.value)}
-                        className="w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
-                    >
-                        <option value="">Selecione um produto...</option>
-                        {productList.map(p => {
-                            const hasDiscount = Boolean(p.discountPercent && p.discountPercent > 0);
-                            const finalPrice = hasDiscount ? p.sellPrice * (1 - p.discountPercent! / 100) : p.sellPrice;
-                            return (
-                                <option key={p.id} value={p.id}>
-                                    {p.code} - {p.name} (R$ {finalPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{hasDiscount ? ` - ${p.discountPercent}% OFF` : ''})
-                                </option>
-                            );
-                        })}
-                    </select>
+                    <SearchableCombobox 
+                        placeholder="Selecione ou busque um produto..."
+                        searchPlaceholder="Buscar produto por nome, código ou setor..."
+                        options={productComboboxOptions}
+                        value={selectedProductId}
+                        onChange={(id) => setSelectedProductId(id)}
+                        showStock={true}
+                        showPrice={true}
+                        itemType="product"
+                    />
+
+                    {(() => {
+                        const selProd = productList.find(p => p.id === selectedProductId);
+                        if (!selProd) return null;
+                        const stockVal = Number(selProd.stock) || 0;
+                        return (
+                            <div className="flex items-center justify-between text-xs px-2.5 py-1.5 rounded-md bg-slate-100 border border-slate-200">
+                                <span className="text-slate-600 font-medium">Estoque atual:</span>
+                                <span className={`font-bold px-2 py-0.5 rounded text-[11px] ${
+                                    stockVal > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+                                }`}>
+                                    {stockVal > 0 ? `${stockVal} unidade(s) em estoque` : 'Sem estoque (0 un.)'}
+                                </span>
+                            </div>
+                        );
+                    })()}
 
                     {(() => {
                         const selProd = productList.find(p => p.id === selectedProductId);
@@ -904,7 +880,7 @@ const Quotes: React.FC<QuotesProps> = ({
                         />
                         <button 
                             onClick={() => handleAddItem(selectedProductId, productQuantity, 'product')}
-                            className="flex-grow bg-[--color-primary-600] text-white rounded-md py-2 hover:bg-[--color-primary-700]"
+                            className="flex-grow bg-[--color-primary-600] text-white rounded-md py-2 hover:bg-[--color-primary-700] cursor-pointer"
                         >
                             Adicionar
                         </button>
@@ -915,22 +891,15 @@ const Quotes: React.FC<QuotesProps> = ({
             <div className="pt-4 border-t border-slate-100">
                 <h3 className="text-sm font-semibold text-slate-900 mb-3">Adicionar Serviço</h3>
                  <div className="space-y-3">
-                    <select 
-                        value={selectedServiceId} 
-                        onChange={(e) => setSelectedServiceId(e.target.value)}
-                        className="w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
-                    >
-                        <option value="">Selecione um serviço...</option>
-                        {serviceList.map(s => {
-                            const hasDiscount = Boolean(s.discountPercent && s.discountPercent > 0);
-                            const finalPrice = hasDiscount ? s.sellPrice * (1 - s.discountPercent! / 100) : s.sellPrice;
-                            return (
-                                <option key={s.id} value={s.id}>
-                                    {s.code} - {s.name} (R$ {finalPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{hasDiscount ? ` - ${s.discountPercent}% OFF` : ''})
-                                </option>
-                            );
-                        })}
-                    </select>
+                    <SearchableCombobox 
+                        placeholder="Selecione ou busque um serviço..."
+                        searchPlaceholder="Buscar serviço por nome, código ou setor..."
+                        options={serviceComboboxOptions}
+                        value={selectedServiceId}
+                        onChange={(id) => setSelectedServiceId(id)}
+                        showPrice={true}
+                        itemType="service"
+                    />
 
                     {(() => {
                         const selServ = serviceList.find(s => s.id === selectedServiceId);
@@ -1003,6 +972,26 @@ const Quotes: React.FC<QuotesProps> = ({
                     onChange={(e) => setNotes(e.target.value)}
                     className="w-full border border-slate-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-[--color-primary-500]"
                 />
+            </div>
+
+            <div className="pt-4 border-t border-slate-100 space-y-1.5">
+                <button 
+                    type="button"
+                    onClick={() => {
+                        if (isCurrentQuoteSaved) {
+                            alert("Este orçamento já está salvo.");
+                        } else {
+                            saveCurrentQuote();
+                        }
+                    }} 
+                    className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl shadow-md text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 transition-colors cursor-pointer"
+                >
+                    <SaveIcon className="h-4 w-4" />
+                    <span>Salvar Orçamento (Dar Baixa no Estoque)</span>
+                </button>
+                <p className="text-[11px] text-slate-500 text-center">
+                    Ao salvar, as quantidades dos produtos são debitadas do estoque automaticamente como venda.
+                </p>
             </div>
          </div>
       </div>
@@ -1198,87 +1187,87 @@ const Quotes: React.FC<QuotesProps> = ({
                       ) : null}
                   </div>
 
-                  {/* Document Title */}
+                   {/* Document Title */}
                   <div className="text-center font-bold text-xs uppercase tracking-wider my-3 text-slate-900">
                       ORÇAMENTO
                   </div>
 
-                  {/* Client Data */}
-                  <div className="text-xs leading-normal mb-3 text-slate-900">
+                  {/* Client Data (Enlarged font size for generated quote) */}
+                  <div className="text-[15px] leading-relaxed mb-3 text-slate-900">
                       {selectedClient ? (
                           <>
-                              <div><strong>Para :</strong> {selectedClient.name}</div>
-                              {selectedClient.address && <div><strong>End. :</strong> {selectedClient.address}{selectedClient.city ? ` - ${selectedClient.city}` : ''}{selectedClient.zipCode ? ` - CEP ${selectedClient.zipCode}` : ''}</div>}
-                              {selectedClient.phone && <div><strong>Tel. :</strong> {selectedClient.phone}</div>}
+                              <div><strong className="font-bold">Para :</strong> {selectedClient.name}</div>
+                              {selectedClient.address && <div><strong className="font-bold">End. :</strong> {selectedClient.address}{selectedClient.city ? ` - ${selectedClient.city}` : ''}{selectedClient.zipCode ? ` - CEP ${selectedClient.zipCode}` : ''}</div>}
+                              {selectedClient.phone && <div><strong className="font-bold">Tel. :</strong> {selectedClient.phone}</div>}
                               {selectedClient.type === 'juridical' && selectedClient.cnpj ? (
-                                  <div><strong>CNPJ :</strong> {selectedClient.cnpj}</div>
+                                  <div><strong className="font-bold">CNPJ :</strong> {selectedClient.cnpj}</div>
                               ) : (selectedClient.cpf ? (
-                                  <div><strong>CPF :</strong> {selectedClient.cpf}</div>
+                                  <div><strong className="font-bold">CPF :</strong> {selectedClient.cpf}</div>
                               ) : null)}
                           </>
                       ) : (
-                          <div className="text-slate-400 italic">Nenhum cliente selecionado</div>
+                          <div className="text-slate-400 italic text-sm">Nenhum cliente selecionado</div>
                       )}
                   </div>
 
-                  {/* Quote Number & Date & Page */}
-                  <div className="flex justify-between items-start text-xs mb-3 text-slate-900">
+                  {/* Quote Number & Date & Page (Enlarged font size for generated quote) */}
+                  <div className="flex justify-between items-start text-[15px] mb-3 text-slate-900">
                       <div>
-                          <div><strong>Orçamento</strong> {currentDisplayNumber !== undefined ? `Nº ${String(currentDisplayNumber).padStart(4, '0')}` : ''}</div>
+                          <div className="text-base font-bold"><strong>Orçamento</strong> {currentDisplayNumber !== undefined ? `Nº ${String(currentDisplayNumber).padStart(4, '0')}` : ''}</div>
                           <div className="print-hidden flex items-center gap-1.5 mt-0.5">
                               <input 
                                   type="date" 
                                   id="quoteDateDisplay"
                                   value={quoteDate}
                                   onChange={(e) => setQuoteDate(e.target.value)}
-                                  className="text-slate-800 border-b border-slate-300 focus:border-[--color-primary-500] focus:outline-none text-xs bg-transparent"
+                                  className="text-slate-800 border-b border-slate-300 focus:border-[--color-primary-500] focus:outline-none text-sm bg-transparent"
                               />
                               <input 
                                   type="time" 
                                   id="quoteTimeDisplay"
                                   value={quoteTime}
                                   onChange={(e) => setQuoteTime(e.target.value)}
-                                  className="text-slate-800 border-b border-slate-300 focus:border-[--color-primary-500] focus:outline-none text-xs bg-transparent"
+                                  className="text-slate-800 border-b border-slate-300 focus:border-[--color-primary-500] focus:outline-none text-sm bg-transparent"
                               />
                           </div>
-                          <span className="hidden print-visible-inline">{formatDateDisplay(quoteDate, quoteTime)}</span>
+                          <span className="hidden print-visible-inline text-sm text-slate-600">{formatDateDisplay(quoteDate, quoteTime)}</span>
                       </div>
-                      <div className="text-right">
+                      <div className="text-right text-sm text-slate-600">
                           <div>Página 1</div>
                           <div>Via 1</div>
                       </div>
                   </div>
 
-                                   {/* Table */}
-                  <table className="w-full text-xs mb-2 border-collapse">
+                  {/* Table (Enlarged font size for generated quote) */}
+                  <table className="w-full text-sm mb-2 border-collapse">
                       <thead>
-                          <tr className="border-y border-slate-700 text-left text-slate-900 font-normal">
-                              <th className="py-1 px-1.5 w-16">Quantidade</th>
-                              {quoteSettings.showProductImage && <th className="py-1 px-1.5 w-14 text-center">Imagem</th>}
-                              {quoteSettings.showProductCode && <th className="py-1 px-1.5 w-28">Código</th>}
-                              {quoteSettings.showProductInternalCode && <th className="py-1 px-1.5 w-24">Cód. Interno</th>}
-                              {quoteSettings.showProductSector && <th className="py-1 px-1.5 w-20">Setor</th>}
-                              <th className="py-1 px-1.5">Descrição</th>
-                              <th className="py-1 px-1.5 w-24 text-right">Valor Unitário</th>
-                              <th className="py-1 px-1.5 w-24 text-right">Valor Total</th>
-                              <th className="py-1 px-1.5 w-8 print-hidden"></th>
+                          <tr className="border-y-2 border-slate-700 text-left text-slate-900 font-semibold">
+                              <th className="py-1.5 px-2 w-16 text-center">Quantidade</th>
+                              {quoteSettings.showProductImage && <th className="py-1.5 px-2 w-14 text-center">Imagem</th>}
+                              {quoteSettings.showProductCode && <th className="py-1.5 px-2 w-28">Código</th>}
+                              {quoteSettings.showProductInternalCode && <th className="py-1.5 px-2 w-24">Cód. Interno</th>}
+                              {quoteSettings.showProductSector && <th className="py-1.5 px-2 w-20">Setor</th>}
+                              <th className="py-1.5 px-2 font-semibold">Descrição</th>
+                              <th className="py-1.5 px-2 w-28 text-right font-semibold">Valor Unitário</th>
+                              <th className="py-1.5 px-2 w-28 text-right font-semibold">Valor Total</th>
+                              <th className="py-1.5 px-2 w-8 print-hidden"></th>
                           </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-slate-800">
                           {productItems.map((item, idx) => (
                               <tr key={`prod-${idx}`}>
-                                  <td className="py-1 px-1.5 text-center align-middle">
+                                  <td className="py-1.5 px-2 text-center align-middle font-semibold text-sm">
                                       <input 
                                          type="number" 
                                          min="1"
                                          value={item.quantity}
                                          onChange={(e) => handleUpdateQuantity(item.product.id, parseInt(e.target.value))}
-                                         className="w-10 bg-transparent border-b border-slate-200 hover:border-slate-400 focus:border-[--color-primary-500] focus:outline-none text-center print-hidden"
+                                         className="w-12 bg-transparent border-b border-slate-200 hover:border-slate-400 focus:border-[--color-primary-500] focus:outline-none text-center text-sm font-semibold print-hidden"
                                       />
                                       <span className="hidden print-visible-inline">{item.quantity}</span>
                                   </td>
                                   {quoteSettings.showProductImage && (
-                                      <td className="py-1 px-1.5 text-center align-middle">
+                                      <td className="py-1.5 px-2 text-center align-middle">
                                           {item.product.image ? (
                                               <ProductImageZoom 
                                                   src={item.product.image} 
@@ -1291,20 +1280,20 @@ const Quotes: React.FC<QuotesProps> = ({
                                           )}
                                       </td>
                                   )}
-                                  {quoteSettings.showProductCode && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.code || '-'}</td>}
-                                  {quoteSettings.showProductInternalCode && <td className="py-1 px-1.5 font-medium text-indigo-700 align-middle">{item.product.internalCode || '-'}</td>}
-                                  {quoteSettings.showProductSector && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.sector || '-'}</td>}
-                                  <td className="py-1 px-1.5 align-middle">
+                                  {quoteSettings.showProductCode && <td className="py-1.5 px-2 text-slate-600 align-middle text-[13px]">{item.product.code || '-'}</td>}
+                                  {quoteSettings.showProductInternalCode && <td className="py-1.5 px-2 font-semibold text-indigo-700 align-middle text-sm">{item.product.internalCode || '-'}</td>}
+                                  {quoteSettings.showProductSector && <td className="py-1.5 px-2 text-slate-600 align-middle text-[13px]">{item.product.sector || '-'}</td>}
+                                  <td className="py-1.5 px-2 align-middle text-sm font-medium">
                                       <div>{item.product.name}</div>
                                       {item.product.discountPercent && item.product.discountPercent > 0 && (
-                                          <span className="inline-block text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 mt-0.5">
+                                          <span className="inline-block text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 mt-0.5">
                                               Desconto de {item.product.discountPercent}% já aplicado
                                           </span>
                                       )}
                                   </td>
-                                  <td className="py-1 px-1.5 text-right align-middle">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                  <td className="py-1 px-1.5 text-right align-middle">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
-                                  <td className="py-1 px-1.5 text-center align-middle print-hidden">
+                                  <td className="py-1.5 px-2 text-right align-middle text-sm font-semibold">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                  <td className="py-1.5 px-2 text-right align-middle text-sm font-semibold">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
+                                  <td className="py-1.5 px-2 text-center align-middle print-hidden">
                                       <button onClick={() => handleRemoveItem(item.product.id)} className="text-slate-400 hover:text-[--color-destructive-500]">
                                           <TrashIcon className="h-3.5 w-3.5" />
                                       </button>
@@ -1314,18 +1303,18 @@ const Quotes: React.FC<QuotesProps> = ({
 
                           {serviceItems.map((item, idx) => (
                               <tr key={`serv-${idx}`}>
-                                  <td className="py-1 px-1.5 text-center align-middle">
+                                  <td className="py-1.5 px-2 text-center align-middle font-semibold text-sm">
                                       <input 
                                          type="number" 
                                          min="1"
                                          value={item.quantity}
                                          onChange={(e) => handleUpdateQuantity(item.product.id, parseInt(e.target.value))}
-                                         className="w-10 bg-transparent border-b border-slate-200 hover:border-slate-400 focus:border-[--color-primary-500] focus:outline-none text-center print-hidden"
+                                         className="w-12 bg-transparent border-b border-slate-200 hover:border-slate-400 focus:border-[--color-primary-500] focus:outline-none text-center text-sm font-semibold print-hidden"
                                       />
                                       <span className="hidden print-visible-inline">{item.quantity}</span>
                                   </td>
                                   {quoteSettings.showProductImage && (
-                                      <td className="py-1 px-1.5 text-center align-middle">
+                                      <td className="py-1.5 px-2 text-center align-middle">
                                           {item.product.image ? (
                                               <ProductImageZoom 
                                                   src={item.product.image} 
@@ -1338,20 +1327,20 @@ const Quotes: React.FC<QuotesProps> = ({
                                           )}
                                       </td>
                                   )}
-                                  {quoteSettings.showProductCode && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.code || '-'}</td>}
-                                  {quoteSettings.showProductInternalCode && <td className="py-1 px-1.5 font-medium text-indigo-700 align-middle">{item.product.internalCode || '-'}</td>}
-                                  {quoteSettings.showProductSector && <td className="py-1 px-1.5 text-slate-600 align-middle">{item.product.sector || '-'}</td>}
-                                  <td className="py-1 px-1.5 align-middle">
+                                  {quoteSettings.showProductCode && <td className="py-1.5 px-2 text-slate-600 align-middle text-[13px]">{item.product.code || '-'}</td>}
+                                  {quoteSettings.showProductInternalCode && <td className="py-1.5 px-2 font-semibold text-indigo-700 align-middle text-sm">{item.product.internalCode || '-'}</td>}
+                                  {quoteSettings.showProductSector && <td className="py-1.5 px-2 text-slate-600 align-middle text-[13px]">{item.product.sector || '-'}</td>}
+                                  <td className="py-1.5 px-2 align-middle text-sm font-medium">
                                       <div>{item.product.name}</div>
                                       {item.product.discountPercent && item.product.discountPercent > 0 && (
-                                          <span className="inline-block text-[10px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 mt-0.5">
+                                          <span className="inline-block text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-1.5 py-0.5 rounded border border-emerald-200 mt-0.5">
                                               Desconto de {item.product.discountPercent}% já aplicado
                                           </span>
                                       )}
                                   </td>
-                                  <td className="py-1 px-1.5 text-right align-middle">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                                  <td className="py-1 px-1.5 text-right align-middle">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
-                                  <td className="py-1 px-1.5 text-center align-middle print-hidden">
+                                  <td className="py-1.5 px-2 text-right align-middle text-sm font-semibold">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                                  <td className="py-1.5 px-2 text-right align-middle text-sm font-semibold">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
+                                  <td className="py-1.5 px-2 text-center align-middle print-hidden">
                                       <button onClick={() => handleRemoveItem(item.product.id)} className="text-slate-400 hover:text-[--color-destructive-500]">
                                           <TrashIcon className="h-3.5 w-3.5" />
                                       </button>
@@ -1361,7 +1350,7 @@ const Quotes: React.FC<QuotesProps> = ({
 
                           {quoteItems.length === 0 && (
                               <tr>
-                                  <td colSpan={4 + (quoteSettings.showProductImage ? 1 : 0) + (quoteSettings.showProductCode ? 1 : 0) + (quoteSettings.showProductInternalCode ? 1 : 0) + (quoteSettings.showProductSector ? 1 : 0) + 1} className="py-8 text-center text-slate-400 italic">
+                                  <td colSpan={4 + (quoteSettings.showProductImage ? 1 : 0) + (quoteSettings.showProductCode ? 1 : 0) + (quoteSettings.showProductInternalCode ? 1 : 0) + (quoteSettings.showProductSector ? 1 : 0) + 1} className="py-8 text-center text-slate-400 italic text-sm">
                                       Adicione produtos ou serviços para começar o orçamento
                                   </td>
                               </tr>
@@ -1369,28 +1358,28 @@ const Quotes: React.FC<QuotesProps> = ({
                       </tbody>
                   </table>
 
-                  {/* Total & Notes Footer */}
-                  <div className="border-t border-slate-700 pt-2 text-xs text-slate-900">
+                  {/* Total & Notes Footer (Enlarged Totals) */}
+                  <div className="border-t-2 border-slate-700 pt-2.5 text-slate-900">
                       {discountAmount > 0 ? (
                           <div className="text-right space-y-1 mb-3">
-                              <div className="text-slate-600">
+                              <div className="text-slate-600 text-[15px]">
                                   Subtotal &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ {subtotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </div>
-                              <div className="text-red-600 font-medium">
+                              <div className="text-red-600 font-semibold text-[15px]">
                                   Desconto{discountType === 'percent' && parseFloat(discount) > 0 ? ` (${discount}%)` : ''} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - R$ {discountAmount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </div>
-                              <div className="font-bold text-sm text-slate-900 pt-1 border-t border-slate-200 inline-block">
+                              <div className="font-extrabold text-[17px] text-slate-900 pt-1 border-t border-slate-200 inline-block">
                                   Total &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ {finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                               </div>
                           </div>
                       ) : (
-                          <div className="text-right font-bold text-sm mb-3">
+                          <div className="text-right font-extrabold text-[17px] mb-3">
                               Total &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ {finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </div>
                       )}
                       {notes ? (
-                          <div className="mt-1">
-                              <div className="text-slate-700 whitespace-pre-wrap">{notes}</div>
+                          <div className="mt-2 pt-2 border-t border-slate-100">
+                              <div className="text-slate-700 whitespace-pre-wrap text-xs">{notes}</div>
                           </div>
                       ) : null}
                   </div>
@@ -1642,6 +1631,187 @@ const Quotes: React.FC<QuotesProps> = ({
               <button
                 onClick={() => setIsSavedQuotesModalOpen(false)}
                 className="px-4 py-1.5 sm:py-2 text-xs sm:text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Client Quotes History Modal in Quotes tab */}
+      {isClientHistoryModalOpen && selectedClient && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-xs p-2 sm:p-4 md:p-6 overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[92vh] flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            {/* Modal Header */}
+            <div className="flex items-start justify-between px-5 py-4 border-b border-slate-200 bg-slate-50 shrink-0">
+              <div className="flex items-start gap-3">
+                <div className="p-2.5 bg-sky-100 text-sky-700 rounded-xl shrink-0 mt-0.5">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-xs font-bold px-2 py-0.5 bg-slate-200 text-slate-800 rounded">
+                      Cód: {selectedClient.code || 'N/A'}
+                    </span>
+                    <h2 className="text-xl font-bold text-slate-900">{selectedClient.name}</h2>
+                    <span className={`text-xs font-semibold uppercase px-2 py-0.5 rounded-full ${
+                      selectedClient.type === 'physical' ? 'bg-[--color-primary-100] text-[--color-primary-800]' : 'bg-purple-100 text-purple-800'
+                    }`}>
+                      {selectedClient.type === 'physical' ? 'Pessoa Física' : 'Pessoa Jurídica'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    {selectedClient.phone && <span>Tel: {selectedClient.phone} • </span>}
+                    {selectedClient.cpf && <span>CPF: {selectedClient.cpf} • </span>}
+                    {selectedClient.cnpj && <span>CNPJ: {selectedClient.cnpj} • </span>}
+                    <span>{selectedClientQuotes.length} orçamento(s) registrado(s) para este cliente</span>
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsClientHistoryModalOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
+                title="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Quotes List Body */}
+            <div className="p-5 overflow-y-auto space-y-4 flex-grow bg-slate-50/50">
+              {selectedClientQuotes.length > 0 ? (
+                selectedClientQuotes.map((quote) => {
+                  const quoteNumberFormatted = quote.number 
+                    ? `Nº ${String(quote.number).padStart(4, '0')}` 
+                    : 'Sem número';
+
+                  return (
+                    <div 
+                      key={quote.id} 
+                      className="bg-white border border-slate-200 rounded-xl p-4 shadow-xs hover:border-sky-300 transition-all space-y-3"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-100 pb-3">
+                        <div className="flex items-center gap-2.5 flex-wrap">
+                          <span className="bg-sky-100 text-sky-800 font-mono font-bold text-xs px-2.5 py-1 rounded-md border border-sky-200">
+                            Orçamento {quoteNumberFormatted}
+                          </span>
+                          <span className="text-xs text-slate-500 flex items-center gap-1">
+                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                            {formatDateDisplay(quote.createdAt)}
+                          </span>
+                        </div>
+
+                        <div className="text-right">
+                          <span className="text-xs text-slate-500 mr-1.5">Total:</span>
+                          <span className="text-base font-extrabold text-emerald-700">
+                            R$ {quote.finalTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Items */}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-xs text-left">
+                          <thead>
+                            <tr className="text-slate-500 border-b border-slate-100 bg-slate-50/50">
+                              <th className="py-1 px-2 font-medium w-16 text-center">Quant.</th>
+                              <th className="py-1 px-2 font-medium">Item / Descrição</th>
+                              <th className="py-1 px-2 font-medium w-24 text-right">Unitário</th>
+                              <th className="py-1 px-2 font-medium w-24 text-right">Total</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {quote.items.map((item, idx) => (
+                              <tr key={`client-modal-item-${idx}`} className="hover:bg-slate-50/70">
+                                <td className="py-1.5 px-2 text-center font-bold text-slate-700">{item.quantity}</td>
+                                <td className="py-1.5 px-2 font-medium text-slate-800">
+                                  {item.product.name}
+                                  {item.product.code && <span className="text-[10px] text-slate-400 font-mono ml-1.5">({item.product.code})</span>}
+                                </td>
+                                <td className="py-1.5 px-2 text-right text-slate-600">
+                                  R$ {item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                                <td className="py-1.5 px-2 text-right font-semibold text-slate-900">
+                                  R$ {(item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* Card actions */}
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100">
+                        <span className="text-[11px] text-slate-400 font-mono">
+                          {quote.items.length} item(s) incluído(s)
+                        </span>
+
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              loadQuoteIntoEditor(quote);
+                              setIsClientHistoryModalOpen(false);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded bg-sky-600 hover:bg-sky-700 text-white transition-colors cursor-pointer"
+                            title="Carregar este orçamento para edição/visualização"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                            <span>Carregar Orçamento</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handlePrintSavedQuote(quote)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 transition-colors cursor-pointer"
+                          >
+                            <PrinterIcon className="w-3.5 h-3.5 text-slate-600" />
+                            <span>Imprimir</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleGeneratePdfFromSaved(quote)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded border border-orange-300 bg-orange-50 hover:bg-orange-100 text-orange-800 transition-colors cursor-pointer"
+                          >
+                            <FileDownIcon className="w-3.5 h-3.5 text-orange-700" />
+                            <span>PDF</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleSendWhatsApp(quote)}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 transition-colors cursor-pointer"
+                          >
+                            <WhatsAppIcon className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>WhatsApp</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              ) : (
+                <div className="text-center py-12 bg-white rounded-xl border border-dashed border-slate-300 p-6 space-y-2">
+                  <FileText className="w-10 h-10 text-slate-400 mx-auto" />
+                  <p className="text-slate-600 font-medium">Nenhum orçamento emitido para este cliente ainda.</p>
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between shrink-0">
+              <span className="text-xs text-slate-500">
+                {selectedClientQuotes.length} orçamento(s) encontrado(s)
+              </span>
+
+              <button
+                type="button"
+                onClick={() => setIsClientHistoryModalOpen(false)}
+                className="px-4 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded-lg text-xs font-medium transition-colors cursor-pointer"
               >
                 Fechar
               </button>

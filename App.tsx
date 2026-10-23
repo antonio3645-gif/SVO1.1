@@ -1665,7 +1665,26 @@ const App: React.FC = () => {
   const renderContent = () => {
     switch (activeTab) {
       case 'clients':
-        return <Clients clients={clients} addClient={addClient} updateClient={updateClient} deleteClient={deleteClient} />;
+        return (
+          <Clients 
+            clients={clients} 
+            addClient={addClient} 
+            updateClient={updateClient} 
+            deleteClient={deleteClient}
+            savedQuotes={savedQuotes}
+            quoteSettings={quoteSettings}
+            companyInfo={companyInfo}
+            logo={logo}
+            onOpenQuote={(quote) => {
+              handleEditQuote(quote.id);
+              setActiveTab('quotes');
+            }}
+            onNewQuoteForClient={(client) => {
+              setPreSelectedClientId(client.id);
+              setActiveTab('quotes');
+            }}
+          />
+        );
       case 'products':
         return <Products 
                     products={products} 
@@ -1691,6 +1710,8 @@ const App: React.FC = () => {
                     deleteQuote={deleteQuote}
                     editQuote={handleEditQuote}
                     companyInfo={companyInfo}
+                    preSelectedClientId={preSelectedClientId}
+                    onClearPreSelectedClientId={() => setPreSelectedClientId(null)}
                 />;
       case 'settings':
         return <Settings 

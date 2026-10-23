@@ -25,18 +25,18 @@ export const generateQuoteHTML = (
   const formattedDate = formatDateTime(quote.createdAt);
 
   const itemsRows = quote.items.map(item => `
-    <tr style="border-bottom: 1px solid #f1f5f9;">
-      <td style="padding: 4px 6px; text-align: center; font-size: 12px; vertical-align: middle;">${item.quantity}</td>
-      ${quoteSettings.showProductImage ? `<td style="padding: 4px 6px; text-align: center; vertical-align: middle; width: 50px;">${item.product.image ? `<img src="${item.product.image}" alt="${item.product.name}" style="max-height: 40px; max-width: 40px; object-fit: contain; display: block; margin: 0 auto; border-radius: 4px;" />` : '-'}</td>` : ''}
-      ${quoteSettings.showProductCode ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569; vertical-align: middle;">${item.product.code || '-'}</td>` : ''}
-      ${quoteSettings.showProductInternalCode ? `<td style="padding: 4px 6px; font-size: 12px; font-weight: 600; color: #4338ca; vertical-align: middle;">${item.product.internalCode || '-'}</td>` : ''}
-      ${quoteSettings.showProductSector ? `<td style="padding: 4px 6px; font-size: 12px; color: #475569; vertical-align: middle;">${item.product.sector || '-'}</td>` : ''}
-      <td style="padding: 4px 6px; font-size: 12px; vertical-align: middle;">
+    <tr style="border-bottom: 1px solid #e2e8f0;">
+      <td style="padding: 6px 8px; text-align: center; font-size: 14px; font-weight: 600; vertical-align: middle;">${item.quantity}</td>
+      ${quoteSettings.showProductImage ? `<td style="padding: 6px 8px; text-align: center; vertical-align: middle; width: 50px;">${item.product.image ? `<img src="${item.product.image}" alt="${item.product.name}" style="max-height: 40px; max-width: 40px; object-fit: contain; display: block; margin: 0 auto; border-radius: 4px;" />` : '-'}</td>` : ''}
+      ${quoteSettings.showProductCode ? `<td style="padding: 6px 8px; font-size: 13px; color: #475569; vertical-align: middle;">${item.product.code || '-'}</td>` : ''}
+      ${quoteSettings.showProductInternalCode ? `<td style="padding: 6px 8px; font-size: 14px; font-weight: 600; color: #4338ca; vertical-align: middle;">${item.product.internalCode || '-'}</td>` : ''}
+      ${quoteSettings.showProductSector ? `<td style="padding: 6px 8px; font-size: 13px; color: #475569; vertical-align: middle;">${item.product.sector || '-'}</td>` : ''}
+      <td style="padding: 6px 8px; font-size: 14px; font-weight: 500; vertical-align: middle;">
         ${item.product.name}
-        ${item.product.discountPercent && item.product.discountPercent > 0 ? `<div style="font-size: 10px; color: #059669; font-weight: bold; margin-top: 1px;">(Desconto de ${item.product.discountPercent}% já aplicado)</div>` : ''}
+        ${item.product.discountPercent && item.product.discountPercent > 0 ? `<div style="font-size: 11px; color: #059669; font-weight: 600; margin-top: 2px;">(Desconto de ${item.product.discountPercent}% já aplicado)</div>` : ''}
       </td>
-      <td style="padding: 4px 6px; text-align: right; font-size: 12px; vertical-align: middle;">${item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-      <td style="padding: 4px 6px; text-align: right; font-size: 12px; vertical-align: middle;">${(item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td style="padding: 6px 8px; text-align: right; font-size: 14px; font-weight: 600; vertical-align: middle;">${item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+      <td style="padding: 6px 8px; text-align: right; font-size: 14px; font-weight: 600; vertical-align: middle;">${(item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
     </tr>
   `).join('');
 
@@ -82,38 +82,38 @@ export const generateQuoteHTML = (
         ORÇAMENTO
       </div>
 
-      <!-- Client Data -->
-      <div style="font-size: 12px; line-height: 1.5; margin-bottom: 12px; color: #0f172a;">
-        <div><strong>Para :</strong> ${quote.client.name}</div>
-        ${quote.client.address ? `<div><strong>End. :</strong> ${quote.client.address}${quote.client.city ? ' - ' + quote.client.city : ''}${quote.client.zipCode ? ' - CEP ' + quote.client.zipCode : ''}</div>` : ''}
-        ${quote.client.phone ? `<div><strong>Tel. :</strong> ${quote.client.phone}</div>` : ''}
-        ${quote.client.type === 'juridical' && quote.client.cnpj ? `<div><strong>CNPJ :</strong> ${quote.client.cnpj}</div>` : (quote.client.cpf ? `<div><strong>CPF :</strong> ${quote.client.cpf}</div>` : '')}
+      <!-- Client Data (Enlarged font size for generated quote) -->
+      <div style="font-size: 15px; line-height: 1.6; margin-bottom: 12px; color: #0f172a;">
+        <div><strong style="font-weight: 700;">Para :</strong> ${quote.client.name}</div>
+        ${quote.client.address ? `<div><strong style="font-weight: 700;">End. :</strong> ${quote.client.address}${quote.client.city ? ' - ' + quote.client.city : ''}${quote.client.zipCode ? ' - CEP ' + quote.client.zipCode : ''}</div>` : ''}
+        ${quote.client.phone ? `<div><strong style="font-weight: 700;">Tel. :</strong> ${quote.client.phone}</div>` : ''}
+        ${quote.client.type === 'juridical' && quote.client.cnpj ? `<div><strong style="font-weight: 700;">CNPJ :</strong> ${quote.client.cnpj}</div>` : (quote.client.cpf ? `<div><strong style="font-weight: 700;">CPF :</strong> ${quote.client.cpf}</div>` : '')}
       </div>
 
-      <!-- Quote Info & Page/Via -->
-      <div style="display: flex; justify-content: space-between; align-items: flex-start; font-size: 12px; margin-bottom: 12px; color: #0f172a;">
+      <!-- Quote Info & Page/Via (Enlarged font size for generated quote) -->
+      <div style="display: flex; justify-content: space-between; align-items: flex-start; font-size: 15px; line-height: 1.5; margin-bottom: 14px; color: #0f172a;">
         <div>
-          <div><strong>Orçamento</strong> ${quoteNumText}</div>
-          <div>${formattedDate}</div>
+          <div style="font-size: 16px; font-weight: 700;"><strong>Orçamento</strong> ${quoteNumText}</div>
+          <div style="font-size: 14px; color: #334155;">${formattedDate}</div>
         </div>
-        <div style="text-align: right;">
+        <div style="text-align: right; font-size: 14px; color: #334155;">
           <div>Página 1</div>
           <div>Via 1</div>
         </div>
       </div>
 
-      <!-- Table -->
-      <table style="width: 100%; border-collapse: collapse; font-size: 12px; margin-bottom: 8px;">
+      <!-- Table (Enlarged font size for generated quote) -->
+      <table style="width: 100%; border-collapse: collapse; font-size: 14px; margin-bottom: 10px;">
         <thead>
-          <tr style="border-top: 1px solid #334155; border-bottom: 1px solid #334155; text-align: left;">
-            <th style="padding: 4px 6px; width: 64px; font-weight: normal; color: #0f172a;">Quantidade</th>
-            ${quoteSettings.showProductImage ? '<th style="padding: 4px 6px; width: 50px; font-weight: normal; color: #0f172a; text-align: center;">Imagem</th>' : ''}
-            ${quoteSettings.showProductCode ? '<th style="padding: 4px 6px; width: 112px; font-weight: normal; color: #0f172a;">Código</th>' : ''}
-            ${quoteSettings.showProductInternalCode ? '<th style="padding: 4px 6px; width: 100px; font-weight: normal; color: #0f172a;">Cód. Interno</th>' : ''}
-            ${quoteSettings.showProductSector ? '<th style="padding: 4px 6px; width: 80px; font-weight: normal; color: #0f172a;">Setor</th>' : ''}
-            <th style="padding: 4px 6px; font-weight: normal; color: #0f172a;">Descrição</th>
-            <th style="padding: 4px 6px; width: 96px; text-align: right; font-weight: normal; color: #0f172a;">Valor Unitário</th>
-            <th style="padding: 4px 6px; width: 96px; text-align: right; font-weight: normal; color: #0f172a;">Valor Total</th>
+          <tr style="border-top: 1.5px solid #334155; border-bottom: 1.5px solid #334155; text-align: left;">
+            <th style="padding: 6px 8px; width: 64px; font-weight: 600; color: #0f172a; text-align: center;">Quantidade</th>
+            ${quoteSettings.showProductImage ? '<th style="padding: 6px 8px; width: 50px; font-weight: 600; color: #0f172a; text-align: center;">Imagem</th>' : ''}
+            ${quoteSettings.showProductCode ? '<th style="padding: 6px 8px; width: 112px; font-weight: 600; color: #0f172a;">Código</th>' : ''}
+            ${quoteSettings.showProductInternalCode ? '<th style="padding: 6px 8px; width: 100px; font-weight: 600; color: #0f172a;">Cód. Interno</th>' : ''}
+            ${quoteSettings.showProductSector ? '<th style="padding: 6px 8px; width: 80px; font-weight: 600; color: #0f172a;">Setor</th>' : ''}
+            <th style="padding: 6px 8px; font-weight: 600; color: #0f172a;">Descrição</th>
+            <th style="padding: 6px 8px; width: 104px; text-align: right; font-weight: 600; color: #0f172a;">Valor Unitário</th>
+            <th style="padding: 6px 8px; width: 104px; text-align: right; font-weight: 600; color: #0f172a;">Valor Total</th>
           </tr>
         </thead>
         <tbody>
@@ -121,26 +121,26 @@ export const generateQuoteHTML = (
         </tbody>
       </table>
 
-      <!-- Total & Notes Footer -->
-      <div style="border-top: 1px solid #334155; padding-top: 8px; font-size: 12px; color: #0f172a;">
+      <!-- Total & Notes Footer (Enlarged Totals) -->
+      <div style="border-top: 1.5px solid #334155; padding-top: 10px; color: #0f172a;">
         ${discountVal > 0 ? `
-          <div style="text-align: right; margin-bottom: 2px; color: #475569;">
+          <div style="text-align: right; font-size: 15px; margin-bottom: 3px; color: #475569;">
             Subtotal &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ ${formattedSubtotal}
           </div>
-          <div style="text-align: right; margin-bottom: 4px; color: #dc2626; font-weight: 500;">
+          <div style="text-align: right; font-size: 15px; margin-bottom: 6px; color: #dc2626; font-weight: 600;">
             ${discountLabel} &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; - R$ ${formattedDiscount}
           </div>
-          <div style="text-align: right; font-weight: bold; font-size: 14px; margin-bottom: 12px; border-top: 1px solid #e2e8f0; padding-top: 4px;">
+          <div style="text-align: right; font-weight: 800; font-size: 17px; margin-bottom: 12px; border-top: 1px solid #e2e8f0; padding-top: 6px;">
             Total &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ ${formattedTotal}
           </div>
         ` : `
-          <div style="text-align: right; font-weight: bold; font-size: 14px; margin-bottom: 12px;">
+          <div style="text-align: right; font-weight: 800; font-size: 17px; margin-bottom: 12px;">
             Total &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; R$ ${formattedTotal}
           </div>
         `}
         ${quote.notes ? `
-          <div style="margin-top: 4px;">
-            <div style="white-space: pre-wrap; font-size: 12px; color: #334155;">${quote.notes}</div>
+          <div style="margin-top: 6px;">
+            <div style="white-space: pre-wrap; font-size: 12px; color: #334155; line-height: 1.4;">${quote.notes}</div>
           </div>
         ` : ''}
       </div>
