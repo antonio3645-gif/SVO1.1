@@ -35,6 +35,7 @@ export const generateQuoteHTML = (
         ${item.product.name}
         ${item.product.discountPercent && item.product.discountPercent > 0 ? `<div style="font-size: 11px; color: #059669; font-weight: 600; margin-top: 2px;">(Desconto de ${item.product.discountPercent}% já aplicado)</div>` : ''}
       </td>
+      ${quoteSettings.showProductStock ? `<td style="padding: 6px 8px; text-align: center; font-size: 14px; font-weight: 600; color: ${item.product.type === 'service' ? '#94a3b8' : ((item.product.stock ?? 0) > 0 ? '#0f172a' : '#dc2626')}; vertical-align: middle;">${item.product.type === 'service' ? '-' : (item.product.stock ?? 0)}</td>` : ''}
       <td style="padding: 6px 8px; text-align: right; font-size: 14px; font-weight: 600; vertical-align: middle;">${item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
       <td style="padding: 6px 8px; text-align: right; font-size: 14px; font-weight: 600; vertical-align: middle;">${(item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
     </tr>
@@ -112,6 +113,7 @@ export const generateQuoteHTML = (
             ${quoteSettings.showProductInternalCode ? '<th style="padding: 6px 8px; width: 100px; font-weight: 600; color: #0f172a;">Cód. Interno</th>' : ''}
             ${quoteSettings.showProductSector ? '<th style="padding: 6px 8px; width: 80px; font-weight: 600; color: #0f172a;">Setor</th>' : ''}
             <th style="padding: 6px 8px; font-weight: 600; color: #0f172a;">Descrição</th>
+            ${quoteSettings.showProductStock ? '<th style="padding: 6px 8px; width: 75px; text-align: center; font-weight: 600; color: #0f172a;">Estoque</th>' : ''}
             <th style="padding: 6px 8px; width: 104px; text-align: right; font-weight: 600; color: #0f172a;">Valor Unitário</th>
             <th style="padding: 6px 8px; width: 104px; text-align: right; font-weight: 600; color: #0f172a;">Valor Total</th>
           </tr>

@@ -982,7 +982,7 @@ const Settings: React.FC<SettingsProps> = ({
                         />
                     </button>
                 </div>
-                 <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between">
                     <span className="flex-grow flex flex-col" id="product-image-label">
                         <span className="text-sm font-medium text-slate-900">Exibir imagem do produto</span>
                         <span className="text-sm text-slate-500">Mostra a imagem do produto no orçamento.</span>
@@ -1001,6 +1001,29 @@ const Settings: React.FC<SettingsProps> = ({
                         aria-hidden="true"
                         className={`${
                             quoteSettings.showProductImage ? 'translate-x-5' : 'translate-x-0'
+                        } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
+                        />
+                    </button>
+                </div>
+                <div className="flex items-center justify-between">
+                    <span className="flex-grow flex flex-col" id="product-stock-label">
+                        <span className="text-sm font-medium text-slate-900">Exibir estoque do produto no orçamento</span>
+                        <span className="text-sm text-slate-500">Mostra a coluna de quantidade em estoque de cada produto ao gerar PDF ou imprimir o orçamento.</span>
+                    </span>
+                    <button
+                        type="button"
+                        onClick={() => onSetQuoteSettings({ ...quoteSettings, showProductStock: !quoteSettings.showProductStock })}
+                        className={`${
+                            quoteSettings.showProductStock ? 'bg-[--color-primary-600]' : 'bg-slate-200'
+                        } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-primary-500]`}
+                        role="switch"
+                        aria-checked={!!quoteSettings.showProductStock}
+                        aria-labelledby="product-stock-label"
+                    >
+                        <span
+                        aria-hidden="true"
+                        className={`${
+                            quoteSettings.showProductStock ? 'translate-x-5' : 'translate-x-0'
                         } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
                         />
                     </button>

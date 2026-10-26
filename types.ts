@@ -73,6 +73,7 @@ export interface QuoteSettings {
   showImageInPriceTable: boolean;
   showItemDiscountPercent?: boolean;
   showInternalCodeInPriceTable?: boolean;
+  showStockInPriceTable?: boolean;
   enableProductInternalCode?: boolean;
   defaultNotes: string;
   allowQuoteWithoutStock: boolean;

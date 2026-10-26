@@ -20,6 +20,7 @@ interface QuotesProps {
   products: Product[];
   logo: string | null;
   quoteSettings: QuoteSettings;
+  onSetQuoteSettings?: (settings: QuoteSettings) => void;
   saveQuote: (quoteData: Omit<SavedQuote, 'id'>) => void;
   quoteToEdit: SavedQuote | null;
   clearQuoteToEdit: () => void;
@@ -32,7 +33,7 @@ interface QuotesProps {
 }
 
 const Quotes: React.FC<QuotesProps> = ({ 
-  clients, products, logo, quoteSettings, saveQuote, quoteToEdit, clearQuoteToEdit,
+  clients, products, logo, quoteSettings, onSetQuoteSettings, saveQuote, quoteToEdit, clearQuoteToEdit,
   savedQuotes, deleteQuote, editQuote, companyInfo,
   preSelectedClientId, onClearPreSelectedClientId
 }) => {
@@ -542,7 +543,7 @@ const Quotes: React.FC<QuotesProps> = ({
       return `${day}/${month}/${year} - ${hours}:${minutes}`;
   };
 
-  const tableCols = 3 + (quoteSettings.showProductCode ? 1 : 0) + (quoteSettings.showProductInternalCode ? 1 : 0) + (quoteSettings.showProductSector ? 1 : 0) + (quoteSettings.showProductImage ? 1 : 0);
+  const tableCols = 3 + (quoteSettings.showProductCode ? 1 : 0) + (quoteSettings.showProductInternalCode ? 1 : 0) + (quoteSettings.showProductSector ? 1 : 0) + (quoteSettings.showProductImage ? 1 : 0) + (quoteSettings.showProductStock ? 1 : 0);
 
   // --- Logic from SavedQuotes component ---
 
@@ -1098,6 +1099,25 @@ const Quotes: React.FC<QuotesProps> = ({
                           <div className="flex flex-wrap items-center gap-1.5">
                               <button 
                                   type="button"
+                                  onClick={() => {
+                                      const updated = { ...quoteSettings, showProductStock: !quoteSettings.showProductStock };
+                                      if (onSetQuoteSettings) {
+                                          onSetQuoteSettings(updated);
+                                      }
+                                  }} 
+                                  title={quoteSettings.showProductStock ? "Ocultar coluna de quantidade em estoque ao gerar PDF ou imprimir" : "Mostrar coluna de quantidade em estoque de cada produto ao gerar PDF ou imprimir"}
+                                  className={`px-2.5 h-8 inline-flex items-center gap-1.5 border rounded text-xs font-semibold shadow-xs transition-colors cursor-pointer select-none ${
+                                      quoteSettings.showProductStock 
+                                          ? 'border-emerald-400 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 ring-1 ring-emerald-300' 
+                                          : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                                  }`}
+                              >
+                                  <span className={`w-2 h-2 rounded-full ${quoteSettings.showProductStock ? 'bg-emerald-600 animate-pulse' : 'bg-slate-300'}`} />
+                                  <span>{quoteSettings.showProductStock ? 'Estoque no PDF: Ativo' : 'Mostrar Estoque'}</span>
+                              </button>
+
+                              <button 
+                                  type="button"
                                   onClick={handlePrint} 
                                   title="Imprimir Orçamento"
                                   className="px-2.5 h-8 inline-flex items-center gap-1.5 border border-slate-300 rounded text-xs font-semibold text-slate-700 bg-gradient-to-b from-slate-100 to-slate-200 hover:from-slate-200 hover:to-slate-300 shadow-xs transition-colors cursor-pointer"
@@ -1248,6 +1268,7 @@ const Quotes: React.FC<QuotesProps> = ({
                               {quoteSettings.showProductInternalCode && <th className="py-1.5 px-2 w-24">Cód. Interno</th>}
                               {quoteSettings.showProductSector && <th className="py-1.5 px-2 w-20">Setor</th>}
                               <th className="py-1.5 px-2 font-semibold">Descrição</th>
+                              {quoteSettings.showProductStock && <th className="py-1.5 px-2 w-20 text-center font-semibold">Estoque</th>}
                               <th className="py-1.5 px-2 w-28 text-right font-semibold">Valor Unitário</th>
                               <th className="py-1.5 px-2 w-28 text-right font-semibold">Valor Total</th>
                               <th className="py-1.5 px-2 w-8 print-hidden"></th>
@@ -1291,6 +1312,11 @@ const Quotes: React.FC<QuotesProps> = ({
                                           </span>
                                       )}
                                   </td>
+                                  {quoteSettings.showProductStock && (
+                                      <td className="py-1.5 px-2 text-center align-middle text-sm font-semibold text-slate-800">
+                                          {item.product.stock !== undefined ? `${item.product.stock} un` : '-'}
+                                      </td>
+                                  )}
                                   <td className="py-1.5 px-2 text-right align-middle text-sm font-semibold">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                   <td className="py-1.5 px-2 text-right align-middle text-sm font-semibold">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
                                   <td className="py-1.5 px-2 text-center align-middle print-hidden">
@@ -1338,6 +1364,11 @@ const Quotes: React.FC<QuotesProps> = ({
                                           </span>
                                       )}
                                   </td>
+                                  {quoteSettings.showProductStock && (
+                                      <td className="py-1.5 px-2 text-center align-middle text-sm text-slate-400">
+                                          -
+                                      </td>
+                                  )}
                                   <td className="py-1.5 px-2 text-right align-middle text-sm font-semibold">{item.product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                                   <td className="py-1.5 px-2 text-right align-middle text-sm font-semibold">{ (item.product.sellPrice * item.quantity).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) }</td>
                                   <td className="py-1.5 px-2 text-center align-middle print-hidden">
@@ -1350,7 +1381,7 @@ const Quotes: React.FC<QuotesProps> = ({
 
                           {quoteItems.length === 0 && (
                               <tr>
-                                  <td colSpan={4 + (quoteSettings.showProductImage ? 1 : 0) + (quoteSettings.showProductCode ? 1 : 0) + (quoteSettings.showProductInternalCode ? 1 : 0) + (quoteSettings.showProductSector ? 1 : 0) + 1} className="py-8 text-center text-slate-400 italic text-sm">
+                                  <td colSpan={4 + (quoteSettings.showProductImage ? 1 : 0) + (quoteSettings.showProductCode ? 1 : 0) + (quoteSettings.showProductInternalCode ? 1 : 0) + (quoteSettings.showProductSector ? 1 : 0) + (quoteSettings.showProductStock ? 1 : 0) + 1} className="py-8 text-center text-slate-400 italic text-sm">
                                       Adicione produtos ou serviços para começar o orçamento
                                   </td>
                               </tr>

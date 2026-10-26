@@ -930,11 +930,28 @@ const Products: React.FC<ProductsProps> = ({
       </div>
     ` : '';
 
-    // Garante que somente os itens que pertencem estritamente a este setor sejam incluídos
-    const onlySectorProducts = sectorProducts.filter(p => {
-      const pSector = p.sector && p.sector.trim() !== '' ? p.sector : 'Sem Setor';
-      return pSector === sectorName;
-    });
+    const isAllSectors = sectorName === 'all' || sectorName === 'Todos os Setores';
+    // Garante que somente os itens que pertencem estritamente a este setor sejam incluídos (ou todos caso seja a tabela completa)
+    const onlySectorProducts = isAllSectors
+      ? [...sectorProducts].sort((a, b) => {
+          if (priceTableSortBy === 'code') {
+            const codeCmp = (a.code || '').localeCompare(b.code || '', undefined, { numeric: true, sensitivity: 'base' });
+            if (codeCmp !== 0) return codeCmp;
+            return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+          }
+          if (priceTableSortBy === 'internalCode') {
+            const intCmp = (a.internalCode || '').localeCompare(b.internalCode || '', undefined, { numeric: true, sensitivity: 'base' });
+            if (intCmp !== 0) return intCmp;
+            return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+          }
+          const nameCmp = (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+          if (nameCmp !== 0) return nameCmp;
+          return (a.code || '').localeCompare(b.code || '', undefined, { numeric: true, sensitivity: 'base' });
+        })
+      : sectorProducts.filter(p => {
+          const pSector = p.sector && p.sector.trim() !== '' ? p.sector : 'Sem Setor';
+          return pSector === sectorName;
+        });
 
     const rowsHtml = onlySectorProducts.map(product => {
       const hasDiscount = Boolean(quoteSettings.showItemDiscountPercent && typeof product.discountPercent === 'number' && product.discountPercent > 0);
@@ -956,6 +973,13 @@ const Products: React.FC<ProductsProps> = ({
             </td>
           ` : ''}
           <td style="padding: 6px 8px; font-size: 13px; font-weight: 500; color: #0f172a; vertical-align: middle;">${product.name.charAt(0).toUpperCase() + product.name.slice(1).toLowerCase()}</td>
+          ${quoteSettings.showStockInPriceTable ? `
+            <td style="padding: 6px 8px; font-size: 12px; text-align: center; vertical-align: middle; white-space: nowrap;">
+              ${product.type === 'service'
+                ? '<span style="color: #94a3b8; font-size: 11px;">-</span>'
+                : `<span style="font-weight: 600; color: ${product.stock > 0 ? '#1e293b' : '#dc2626'};">${product.stock} un</span>`}
+            </td>
+          ` : ''}
           ${quoteSettings.showItemDiscountPercent ? `
             <td style="padding: 6px 8px; font-size: 12px; text-align: right; color: #334155; vertical-align: middle;">
               R$ ${product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -1009,6 +1033,7 @@ const Products: React.FC<ProductsProps> = ({
               <th style="text-align: left; width: 80px;">Código</th>
               ${quoteSettings.showInternalCodeInPriceTable ? '<th style="text-align: left; width: 95px;">Cód. Interno</th>' : ''}
               <th style="text-align: left;">Item</th>
+              ${quoteSettings.showStockInPriceTable ? '<th style="text-align: center; width: 85px;">Estoque</th>' : ''}
               ${quoteSettings.showItemDiscountPercent ? `
                 <th style="text-align: right; width: 125px;">Preço de Tabela</th>
                 <th style="text-align: center; width: 90px;">Desconto</th>
@@ -1030,16 +1055,18 @@ const Products: React.FC<ProductsProps> = ({
   };
 
   const handlePrintSector = (sectorName: string) => {
-    const rawProducts = productsBySector[sectorName] || [];
-    const sectorProducts = rawProducts.filter(p => {
+    const isAll = sectorName === 'all' || sectorName === 'Todos os Setores';
+    const rawProducts = isAll ? products : (productsBySector[sectorName] || []);
+    const sectorProducts = isAll ? products : rawProducts.filter(p => {
       const pSector = p.sector && p.sector.trim() !== '' ? p.sector : 'Sem Setor';
       return pSector === sectorName;
     });
     if (sectorProducts.length === 0) {
-      alert(`Nenhum item cadastrado no setor "${sectorName}".`);
+      alert(isAll ? "Nenhum item cadastrado no sistema." : `Nenhum item cadastrado no setor "${sectorName}".`);
       return;
     }
-    const printHtml = generateSectorPriceTablePrintHTML(sectorName, sectorProducts);
+    const displayName = isAll ? 'Todos os Setores (Tabela Completa)' : sectorName;
+    const printHtml = generateSectorPriceTablePrintHTML(displayName, sectorProducts);
     
     // Impressão via iframe para evitar reload da página e perda de estado
     const printIframe = document.createElement('iframe');
@@ -1075,13 +1102,14 @@ const Products: React.FC<ProductsProps> = ({
   };
 
   const handleExportPdfSector = async (sectorName: string) => {
-    const rawProducts = productsBySector[sectorName] || [];
-    const sectorProducts = rawProducts.filter(p => {
+    const isAll = sectorName === 'all' || sectorName === 'Todos os Setores';
+    const rawProducts = isAll ? products : (productsBySector[sectorName] || []);
+    const sectorProducts = isAll ? products : rawProducts.filter(p => {
       const pSector = p.sector && p.sector.trim() !== '' ? p.sector : 'Sem Setor';
       return pSector === sectorName;
     });
     if (sectorProducts.length === 0) {
-      alert(`Nenhum item cadastrado no setor "${sectorName}".`);
+      alert(isAll ? "Nenhum item cadastrado no sistema." : `Nenhum item cadastrado no setor "${sectorName}".`);
       return;
     }
     // @ts-ignore
@@ -1090,7 +1118,8 @@ const Products: React.FC<ProductsProps> = ({
       return;
     }
 
-    const htmlContent = generateSectorPriceTablePrintHTML(sectorName, sectorProducts);
+    const displayName = isAll ? 'Todos os Setores (Tabela Completa)' : sectorName;
+    const htmlContent = generateSectorPriceTablePrintHTML(displayName, sectorProducts);
     const container = document.createElement('div');
     container.style.position = 'absolute';
     container.style.left = '-9999px';
@@ -1152,7 +1181,7 @@ const Products: React.FC<ProductsProps> = ({
       }
 
       const date = new Date().toISOString().slice(0, 10);
-      const safeSector = sectorName.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const safeSector = isAll ? 'Todos_os_Setores' : sectorName.replace(/[^a-zA-Z0-9_-]/g, '_');
       pdf.save(`Tabela-de-Precos-${safeSector}-${date}.pdf`);
     } catch (error) {
       console.error("Erro ao gerar PDF:", error);
@@ -1181,34 +1210,37 @@ const Products: React.FC<ProductsProps> = ({
   };
 
   const handleWhatsAppSector = (sectorName: string) => {
-    const sectorProducts = (productsBySector[sectorName] || []).filter(p => {
+    const isAll = sectorName === 'all' || sectorName === 'Todos os Setores';
+    const sectorProducts = isAll ? products : (productsBySector[sectorName] || []).filter(p => {
       const pSector = p.sector && p.sector.trim() !== '' ? p.sector : 'Sem Setor';
       return pSector === sectorName;
     });
 
     if (sectorProducts.length === 0) {
-      alert(`Nenhum item encontrado no setor "${sectorName}".`);
+      alert(isAll ? "Nenhum item encontrado no sistema." : `Nenhum item encontrado no setor "${sectorName}".`);
       return;
     }
 
-    const inputPhone = prompt(`Deseja enviar a Tabela de Preços do setor "${sectorName}" para qual número de WhatsApp?\n(Deixe em branco para abrir o WhatsApp e escolher o contato):`);
+    const titleSector = isAll ? 'TODOS OS SETORES' : sectorName.toUpperCase();
+    const inputPhone = prompt(`Deseja enviar a Tabela de Preços (${titleSector}) para qual número de WhatsApp?\n(Deixe em branco para abrir o WhatsApp e escolher o contato):`);
     let phone = inputPhone ? inputPhone.replace(/\D/g, '') : '';
     if (phone && phone.length >= 10 && phone.length <= 11) {
       phone = '55' + phone;
     }
 
     const companyTitle = companyInfo?.name ? `*${companyInfo.name.toUpperCase()}*\n` : '';
-    let message = `${companyTitle}📋 *TABELA DE PREÇOS - SETOR: ${sectorName.toUpperCase()}*\n\n`;
+    let message = `${companyTitle}📋 *TABELA DE PREÇOS - SETOR: ${titleSector}*\n\n`;
 
     sectorProducts.forEach(product => {
       const hasDiscount = Boolean(quoteSettings.showItemDiscountPercent && typeof product.discountPercent === 'number' && product.discountPercent > 0);
       const discountedPrice = hasDiscount ? product.sellPrice * (1 - (product.discountPercent || 0) / 100) : product.sellPrice;
       const internalCodeText = quoteSettings.showInternalCodeInPriceTable && product.internalCode ? ` [${product.internalCode}]` : '';
+      const stockText = quoteSettings.showStockInPriceTable && product.type !== 'service' ? ` | Est: ${product.stock} un` : '';
 
       if (hasDiscount) {
-        message += `• *${product.name}*${internalCodeText}\n  De: R$ ${product.sellPrice.toFixed(2)} | Desc: ${product.discountPercent}%\n  *Por: R$ ${discountedPrice.toFixed(2)}*\n`;
+        message += `• *${product.name}*${internalCodeText}${stockText}\n  De: R$ ${product.sellPrice.toFixed(2)} | Desc: ${product.discountPercent}%\n  *Por: R$ ${discountedPrice.toFixed(2)}*\n`;
       } else {
-        message += `• *${product.name}*${internalCodeText}: *R$ ${product.sellPrice.toFixed(2)}*\n`;
+        message += `• *${product.name}*${internalCodeText}${stockText}: *R$ ${product.sellPrice.toFixed(2)}*\n`;
       }
     });
 
@@ -1936,6 +1968,31 @@ const Products: React.FC<ProductsProps> = ({
                                     </button>
                                     <label className="text-xs font-medium text-slate-700">Cód. Interno</label>
                                 </div>
+                                <div className="flex items-center">
+                                    <button
+                                        type="button"
+                                        onClick={() => onSetQuoteSettings({ ...quoteSettings, showStockInPriceTable: !quoteSettings.showStockInPriceTable })}
+                                        className={`${
+                                            quoteSettings.showStockInPriceTable ? 'bg-[--color-primary-600]' : 'bg-slate-300'
+                                        } relative inline-flex flex-shrink-0 h-6 w-11 border-2 border-transparent rounded-full cursor-pointer transition-colors ease-in-out duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[--color-primary-500] mr-2`}
+                                        role="switch"
+                                        aria-checked={!!quoteSettings.showStockInPriceTable}
+                                        title="Mostrar quantidade em estoque na tabela de preços"
+                                    >
+                                        <span className={`${
+                                            quoteSettings.showStockInPriceTable ? 'translate-x-5' : 'translate-x-0'
+                                        } pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transform ring-0 transition ease-in-out duration-200`}
+                                        />
+                                    </button>
+                                    <label 
+                                        onClick={() => onSetQuoteSettings({ ...quoteSettings, showStockInPriceTable: !quoteSettings.showStockInPriceTable })}
+                                        className="text-xs font-medium text-slate-700 cursor-pointer flex items-center gap-1 select-none"
+                                        title="Ligar ou desligar exibição de estoque na tabela de preços"
+                                    >
+                                        <Boxes className="w-3.5 h-3.5 text-slate-500" />
+                                        Estoque
+                                    </label>
+                                </div>
                             </div>
 
                             {/* Botões de Ação */}
@@ -2111,6 +2168,11 @@ const Products: React.FC<ProductsProps> = ({
                                                 )}
                                             </div>
                                         </th>
+                                        {quoteSettings.showStockInPriceTable && (
+                                            <th className="px-4 py-2 text-center text-xs font-semibold text-slate-600 uppercase tracking-wider w-24">
+                                                Estoque
+                                            </th>
+                                        )}
                                         {quoteSettings.showItemDiscountPercent ? (
                                             <>
                                                 <th className="px-4 py-2 text-right text-xs font-semibold text-slate-600 uppercase tracking-wider">Preço de Tabela</th>
@@ -2149,6 +2211,21 @@ const Products: React.FC<ProductsProps> = ({
                                                 <td className="px-4 py-2 whitespace-nowrap text-sm font-medium text-slate-900">
                                                     {product.name.charAt(0).toUpperCase() + product.name.slice(1).toLowerCase()}
                                                 </td>
+                                                {quoteSettings.showStockInPriceTable && (
+                                                    <td className="px-4 py-2 whitespace-nowrap text-sm text-center">
+                                                        {product.type === 'service' ? (
+                                                            <span className="text-slate-400 text-xs">-</span>
+                                                        ) : (
+                                                            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold ${
+                                                                product.stock > 0 
+                                                                    ? 'bg-slate-100 text-slate-800 border border-slate-200' 
+                                                                    : 'bg-red-50 text-red-700 border border-red-200'
+                                                            }`}>
+                                                                {product.stock} un
+                                                            </span>
+                                                        )}
+                                                    </td>
+                                                )}
                                                 {quoteSettings.showItemDiscountPercent ? (
                                                     <>
                                                         <td className="px-4 py-2 whitespace-nowrap text-sm text-right text-slate-700 font-medium">
@@ -2286,6 +2363,29 @@ const Products: React.FC<ProductsProps> = ({
             </p>
 
             <div className="space-y-2 max-h-60 overflow-y-auto pr-1 my-3">
+              <button
+                type="button"
+                onClick={() => {
+                  const action = sectorModalAction;
+                  setSectorModalAction(null);
+                  if (action === 'print') {
+                    handlePrintSector('all');
+                  } else if (action === 'pdf') {
+                    handleExportPdfSector('all');
+                  } else if (action === 'whatsapp') {
+                    handleWhatsAppSector('all');
+                  }
+                }}
+                className="w-full flex items-center justify-between p-3 border-2 border-blue-200 bg-blue-50/70 rounded-lg hover:border-blue-500 hover:bg-blue-100/70 transition-all text-left group"
+              >
+                <span className="font-bold text-sm text-blue-900 flex items-center gap-2">
+                  <span>📑</span>
+                  <span>Todos os Setores (Tabela Completa)</span>
+                </span>
+                <span className="text-xs px-2.5 py-1 rounded-full bg-blue-200 text-blue-900 font-bold">
+                  {products.length} {products.length === 1 ? 'item' : 'itens'}
+                </span>
+              </button>
               {Object.keys(productsBySector)
                 .filter(sector => productsBySector[sector] && productsBySector[sector].length > 0)
                 .sort()
