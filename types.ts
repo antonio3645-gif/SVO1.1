@@ -74,6 +74,7 @@ export interface QuoteSettings {
   showItemDiscountPercent?: boolean;
   showInternalCodeInPriceTable?: boolean;
   showStockInPriceTable?: boolean;
+  showProductStock?: boolean;
   enableProductInternalCode?: boolean;
   defaultNotes: string;
   allowQuoteWithoutStock: boolean;

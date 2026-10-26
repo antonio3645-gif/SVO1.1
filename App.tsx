@@ -83,6 +83,7 @@ const App: React.FC = () => {
     showItemDiscountPercent: false,
     showInternalCodeInPriceTable: false,
     showStockInPriceTable: false,
+    showProductStock: false,
     enableProductInternalCode: true,
     defaultNotes: '',
     allowQuoteWithoutStock: true,

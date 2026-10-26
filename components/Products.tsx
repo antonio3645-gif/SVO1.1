@@ -977,7 +977,7 @@ const Products: React.FC<ProductsProps> = ({
             <td style="padding: 6px 8px; font-size: 12px; text-align: center; vertical-align: middle; white-space: nowrap;">
               ${product.type === 'service'
                 ? '<span style="color: #94a3b8; font-size: 11px;">-</span>'
-                : `<span style="font-weight: 600; color: ${product.stock > 0 ? '#1e293b' : '#dc2626'};">${product.stock} un</span>`}
+                : `<span style="font-weight: 600; color: ${product.stock > 0 ? '#1e293b' : '#dc2626'};">${product.stock}</span>`}
             </td>
           ` : ''}
           ${quoteSettings.showItemDiscountPercent ? `
@@ -1235,7 +1235,7 @@ const Products: React.FC<ProductsProps> = ({
       const hasDiscount = Boolean(quoteSettings.showItemDiscountPercent && typeof product.discountPercent === 'number' && product.discountPercent > 0);
       const discountedPrice = hasDiscount ? product.sellPrice * (1 - (product.discountPercent || 0) / 100) : product.sellPrice;
       const internalCodeText = quoteSettings.showInternalCodeInPriceTable && product.internalCode ? ` [${product.internalCode}]` : '';
-      const stockText = quoteSettings.showStockInPriceTable && product.type !== 'service' ? ` | Est: ${product.stock} un` : '';
+      const stockText = quoteSettings.showStockInPriceTable && product.type !== 'service' ? ` | Est: ${product.stock}` : '';
 
       if (hasDiscount) {
         message += `• *${product.name}*${internalCodeText}${stockText}\n  De: R$ ${product.sellPrice.toFixed(2)} | Desc: ${product.discountPercent}%\n  *Por: R$ ${discountedPrice.toFixed(2)}*\n`;
@@ -2221,7 +2221,7 @@ const Products: React.FC<ProductsProps> = ({
                                                                     ? 'bg-slate-100 text-slate-800 border border-slate-200' 
                                                                     : 'bg-red-50 text-red-700 border border-red-200'
                                                             }`}>
-                                                                {product.stock} un
+                                                                {product.stock}
                                                             </span>
                                                         )}
                                                     </td>
