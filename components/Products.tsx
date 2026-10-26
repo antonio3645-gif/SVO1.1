@@ -919,136 +919,248 @@ const Products: React.FC<ProductsProps> = ({
     return grouped;
   }, [products, quoteSettings.sectors, priceTableSortBy]);
 
-  const generateSectorPriceTablePrintHTML = (sectorName: string, sectorProducts: Product[]) => {
-    const title = companyInfo?.name || 'Tabela de Preços';
-    const companyHeaderHtml = companyInfo ? `
-      <div class="company-header">
-          ${logo ? `<img src="${logo}" alt="Logotipo" class="logo"/>` : ''}
-          ${companyInfo.address ? `<p>${companyInfo.address}, ${companyInfo.city || ''} - ${companyInfo.zipCode || ''}</p>` : ''}
-          ${companyInfo.cnpj ? `<p>CNPJ: ${companyInfo.cnpj}</p>` : ''}
-          ${companyInfo.phone || companyInfo.email ? `<p>${companyInfo.phone ? `Tel: ${companyInfo.phone}` : ''}${companyInfo.phone && companyInfo.email ? ' | ' : ''}${companyInfo.email ? `Email: ${companyInfo.email}` : ''}</p>` : ''}
-      </div>
-    ` : '';
-
-    const isAllSectors = sectorName === 'all' || sectorName === 'Todos os Setores';
-    // Garante que somente os itens que pertencem estritamente a este setor sejam incluídos (ou todos caso seja a tabela completa)
-    const onlySectorProducts = isAllSectors
-      ? [...sectorProducts].sort((a, b) => {
-          if (priceTableSortBy === 'code') {
-            const codeCmp = (a.code || '').localeCompare(b.code || '', undefined, { numeric: true, sensitivity: 'base' });
-            if (codeCmp !== 0) return codeCmp;
-            return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
-          }
-          if (priceTableSortBy === 'internalCode') {
-            const intCmp = (a.internalCode || '').localeCompare(b.internalCode || '', undefined, { numeric: true, sensitivity: 'base' });
-            if (intCmp !== 0) return intCmp;
-            return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
-          }
-          const nameCmp = (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
-          if (nameCmp !== 0) return nameCmp;
-          return (a.code || '').localeCompare(b.code || '', undefined, { numeric: true, sensitivity: 'base' });
-        })
+  const getSortedSectorProducts = (sectorName: string, sectorProducts: Product[]): Product[] => {
+    const isAllSectors = sectorName === 'all' || sectorName === 'Todos os Setores' || sectorName.includes('Todos os Setores');
+    const items = isAllSectors
+      ? [...sectorProducts]
       : sectorProducts.filter(p => {
           const pSector = p.sector && p.sector.trim() !== '' ? p.sector : 'Sem Setor';
           return pSector === sectorName;
         });
 
-    const rowsHtml = onlySectorProducts.map(product => {
-      const hasDiscount = Boolean(quoteSettings.showItemDiscountPercent && typeof product.discountPercent === 'number' && product.discountPercent > 0);
-      const discountedPrice = hasDiscount 
-        ? product.sellPrice * (1 - product.discountPercent! / 100) 
-        : product.sellPrice;
+    return items.sort((a, b) => {
+      if (priceTableSortBy === 'code') {
+        const codeCmp = (a.code || '').localeCompare(b.code || '', undefined, { numeric: true, sensitivity: 'base' });
+        if (codeCmp !== 0) return codeCmp;
+        return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      }
+      if (priceTableSortBy === 'internalCode') {
+        const intCmp = (a.internalCode || '').localeCompare(b.internalCode || '', undefined, { numeric: true, sensitivity: 'base' });
+        if (intCmp !== 0) return intCmp;
+        return (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      }
+      const nameCmp = (a.name || '').localeCompare(b.name || '', undefined, { sensitivity: 'base' });
+      if (nameCmp !== 0) return nameCmp;
+      return (a.code || '').localeCompare(b.code || '', undefined, { numeric: true, sensitivity: 'base' });
+    });
+  };
 
-      return `
-        <tr>
-          ${quoteSettings.showImageInPriceTable ? `
-            <td style="padding: 6px 8px; width: 50px; text-align: center; vertical-align: middle;">
-              ${product.image ? `<img src="${product.image}" alt="${product.name}" style="max-width: 44px; max-height: 44px; object-fit: cover; border-radius: 4px; display: block; margin: 0 auto;"/>` : '<span style="font-size: 10px; color: #94a3b8;">Sem foto</span>'}
-            </td>
-          ` : ''}
-          <td style="padding: 6px 8px; font-size: 12px; color: #64748b; white-space: nowrap; vertical-align: middle;">${product.code || '-'}</td>
-          ${quoteSettings.showInternalCodeInPriceTable ? `
-            <td style="padding: 6px 8px; font-size: 12px; font-weight: 600; color: #3730a3; white-space: nowrap; vertical-align: middle;">
-              ${product.internalCode || '-'}
-            </td>
-          ` : ''}
-          <td style="padding: 6px 8px; font-size: 13px; font-weight: 500; color: #0f172a; vertical-align: middle;">${product.name.charAt(0).toUpperCase() + product.name.slice(1).toLowerCase()}</td>
-          ${quoteSettings.showStockInPriceTable ? `
-            <td style="padding: 6px 8px; font-size: 12px; text-align: center; vertical-align: middle; white-space: nowrap;">
-              ${product.type === 'service'
-                ? '<span style="color: #94a3b8; font-size: 11px;">-</span>'
-                : `<span style="font-weight: 600; color: ${product.stock > 0 ? '#1e293b' : '#dc2626'};">${product.stock}</span>`}
-            </td>
-          ` : ''}
-          ${quoteSettings.showItemDiscountPercent ? `
-            <td style="padding: 6px 8px; font-size: 12px; text-align: right; color: #334155; vertical-align: middle;">
-              R$ ${product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </td>
-            <td style="padding: 6px 8px; font-size: 12px; text-align: center; vertical-align: middle;">
-              ${hasDiscount ? `
-                <span style="display: inline-block; padding: 2px 6px; font-size: 11px; font-weight: bold; background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; border-radius: 4px;">
-                  ${product.discountPercent}%
-                </span>
-              ` : '<span style="color: #94a3b8;">-</span>'}
-            </td>
-            <td style="padding: 6px 8px; font-size: 13px; text-align: right; vertical-align: middle; ${hasDiscount ? 'font-weight: bold; color: #059669;' : 'font-weight: 500; color: #334155;'}">
-              R$ ${discountedPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </td>
-          ` : `
-            <td style="padding: 6px 8px; font-size: 13px; font-weight: 500; text-align: right; color: #334155; vertical-align: middle;">
-              R$ ${product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </td>
-          `}
-        </tr>
-      `;
-    }).join('');
+  const renderPriceTableRowHTML = (product: Product): string => {
+    const hasDiscount = Boolean(quoteSettings.showItemDiscountPercent && typeof product.discountPercent === 'number' && product.discountPercent > 0);
+    const discountedPrice = hasDiscount 
+      ? product.sellPrice * (1 - product.discountPercent! / 100) 
+      : product.sellPrice;
 
     return `
-      <style>
-        body { font-family: sans-serif; color: #334155; margin: 0; padding: 0; }
-        .price-table-print { padding: 1.5rem; max-width: 900px; margin: 0 auto; }
-        .company-header { text-align: center; margin-bottom: 1rem; border-bottom: 1px solid #e2e8f0; padding-bottom: 0.75rem; }
-        .company-header .logo { max-height: 65px; margin: 0 auto 0.5rem; display: block; }
-        .company-header p { font-size: 0.85rem; margin: 2px 0; color: #475569; }
-        .main-title { font-size: 1.5rem; font-weight: 700; margin-bottom: 0.25rem; color: #1e293b; text-align: center; }
-        .sector-badge-title { text-align: center; font-size: 1.15rem; font-weight: 600; color: #2563eb; margin-bottom: 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid #e2e8f0; }
-        table { width: 100%; border-collapse: collapse; margin-top: 0.5rem; margin-bottom: 1rem; page-break-inside: auto; }
-        tr { page-break-inside: avoid; page-break-after: auto; }
-        th, td { border: 1px solid #e2e8f0; vertical-align: middle; }
-        th { background-color: #f8fafc; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #475569; padding: 8px; }
-      </style>
-      <div class="price-table-print">
-        ${companyHeaderHtml}
-        <h2 class="main-title">${title}</h2>
-        <div class="sector-badge-title">
-          Setor: ${sectorName}
-          <span style="font-size: 0.8rem; font-weight: normal; color: #64748b; margin-left: 8px;">
-            (Ordenado por: ${priceTableSortBy === 'code' ? 'Código' : priceTableSortBy === 'internalCode' ? 'Código Interno' : 'Item / Ordem Alfabética'})
-          </span>
+      <tr style="break-inside: avoid; page-break-inside: avoid;">
+        ${quoteSettings.showImageInPriceTable ? `
+          <td style="padding: 5px 6px; width: 48px; text-align: center; vertical-align: middle; border: 1px solid #cbd5e1;">
+            ${product.image ? `<img src="${product.image}" alt="${product.name}" style="max-width: 42px; max-height: 42px; object-fit: cover; border-radius: 4px; display: block; margin: 0 auto;"/>` : '<span style="font-size: 10px; color: #94a3b8;">Sem foto</span>'}
+          </td>
+        ` : ''}
+        <td style="padding: 6px 8px; font-size: 12px; color: #64748b; white-space: nowrap; vertical-align: middle; border: 1px solid #cbd5e1;">${product.code || '-'}</td>
+        ${quoteSettings.showInternalCodeInPriceTable ? `
+          <td style="padding: 6px 8px; font-size: 12px; font-weight: 600; color: #3730a3; white-space: nowrap; vertical-align: middle; border: 1px solid #cbd5e1;">
+            ${product.internalCode || '-'}
+          </td>
+        ` : ''}
+        <td style="padding: 6px 8px; font-size: 12.5px; font-weight: 500; color: #0f172a; vertical-align: middle; border: 1px solid #cbd5e1; word-break: break-word;">${product.name.charAt(0).toUpperCase() + product.name.slice(1).toLowerCase()}</td>
+        ${quoteSettings.showStockInPriceTable ? `
+          <td style="padding: 6px 8px; font-size: 12px; text-align: center; vertical-align: middle; white-space: nowrap; border: 1px solid #cbd5e1;">
+            ${product.type === 'service'
+              ? '<span style="color: #94a3b8; font-size: 11px;">-</span>'
+              : `<span style="font-weight: 600; color: ${product.stock > 0 ? '#1e293b' : '#dc2626'};">${product.stock}</span>`}
+          </td>
+        ` : ''}
+        ${quoteSettings.showItemDiscountPercent ? `
+          <td style="padding: 6px 8px; font-size: 12px; text-align: right; color: #334155; vertical-align: middle; white-space: nowrap; border: 1px solid #cbd5e1;">
+            R$ ${product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </td>
+          <td style="padding: 6px 8px; font-size: 12px; text-align: center; vertical-align: middle; white-space: nowrap; border: 1px solid #cbd5e1;">
+            ${hasDiscount ? `
+              <span style="display: inline-block; padding: 2px 6px; font-size: 11px; font-weight: bold; background-color: #d1fae5; color: #065f46; border: 1px solid #a7f3d0; border-radius: 4px;">
+                ${product.discountPercent}%
+              </span>
+            ` : '<span style="color: #94a3b8;">-</span>'}
+          </td>
+          <td style="padding: 6px 8px; font-size: 12.5px; text-align: right; vertical-align: middle; white-space: nowrap; border: 1px solid #cbd5e1; ${hasDiscount ? 'font-weight: bold; color: #059669;' : 'font-weight: 500; color: #334155;'}">
+            R$ ${discountedPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </td>
+        ` : `
+          <td style="padding: 6px 8px; font-size: 12.5px; font-weight: 500; text-align: right; color: #334155; vertical-align: middle; white-space: nowrap; border: 1px solid #cbd5e1;">
+            R$ ${product.sellPrice.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </td>
+        `}
+      </tr>
+    `;
+  };
+
+  const renderPriceTableHeaderHTML = (): string => {
+    return `
+      <thead>
+        <tr style="background-color: #f8fafc;">
+          ${quoteSettings.showImageInPriceTable ? '<th style="padding: 7px 6px; text-align: center; width: 48px; font-size: 11px; text-transform: uppercase; color: #475569; border: 1px solid #cbd5e1;">Imagem</th>' : ''}
+          <th style="padding: 7px 8px; text-align: left; width: 80px; font-size: 11px; text-transform: uppercase; color: #475569; border: 1px solid #cbd5e1;">Código</th>
+          ${quoteSettings.showInternalCodeInPriceTable ? '<th style="padding: 7px 8px; text-align: left; width: 95px; font-size: 11px; text-transform: uppercase; color: #475569; border: 1px solid #cbd5e1;">Cód. Interno</th>' : ''}
+          <th style="padding: 7px 8px; text-align: left; font-size: 11px; text-transform: uppercase; color: #475569; border: 1px solid #cbd5e1;">Item</th>
+          ${quoteSettings.showStockInPriceTable ? '<th style="padding: 7px 8px; text-align: center; width: 75px; font-size: 11px; text-transform: uppercase; color: #475569; border: 1px solid #cbd5e1;">Estoque</th>' : ''}
+          ${quoteSettings.showItemDiscountPercent ? `
+            <th style="padding: 7px 8px; text-align: right; width: 115px; font-size: 11px; text-transform: uppercase; color: #475569; border: 1px solid #cbd5e1;">Preço Tabela</th>
+            <th style="padding: 7px 6px; text-align: center; width: 80px; font-size: 11px; text-transform: uppercase; color: #475569; border: 1px solid #cbd5e1;">Desconto</th>
+            <th style="padding: 7px 8px; text-align: right; width: 115px; font-size: 11px; text-transform: uppercase; color: #475569; border: 1px solid #cbd5e1;">Preço Final</th>
+          ` : `
+            <th style="padding: 7px 8px; text-align: right; width: 115px; font-size: 11px; text-transform: uppercase; color: #475569; border: 1px solid #cbd5e1;">Preço Venda</th>
+          `}
+        </tr>
+      </thead>
+    `;
+  };
+
+  const measureRowHeights = (items: Product[]): number[] => {
+    const testDiv = document.createElement('div');
+    testDiv.style.cssText = 'position:absolute;left:-9999px;top:0;width:794px;visibility:hidden;box-sizing:border-box;padding:0 30px;';
+    const testTable = document.createElement('table');
+    testTable.style.cssText = 'width:100%;border-collapse:collapse;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;';
+    const testTbody = document.createElement('tbody');
+    testTable.appendChild(testTbody);
+    testDiv.appendChild(testTable);
+    document.body.appendChild(testDiv);
+
+    const heights: number[] = [];
+    try {
+      items.forEach(product => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = renderPriceTableRowHTML(product);
+        testTbody.appendChild(tr);
+      });
+      const rows = testTbody.querySelectorAll('tr');
+      rows.forEach(r => {
+        const h = (r as HTMLElement).offsetHeight || 0;
+        heights.push(Math.max(h, 34));
+      });
+    } catch (err) {
+      console.warn("Aviso ao medir linhas da tabela de preços:", err);
+    } finally {
+      if (document.body.contains(testDiv)) {
+        document.body.removeChild(testDiv);
+      }
+    }
+
+    const defaultH = quoteSettings.showImageInPriceTable ? 52 : 36;
+    return items.map((_, idx) => heights[idx] || defaultH);
+  };
+
+  const paginatePriceTableProducts = (productsToPaginate: Product[]): Product[][] => {
+    if (productsToPaginate.length === 0) return [];
+
+    const heights = measureRowHeights(productsToPaginate);
+    const page1Limit = companyInfo ? (logo ? 750 : 790) : 830;
+    const nextPageLimit = 890;
+
+    const pages: Product[][] = [];
+    let currentPage: Product[] = [];
+    let currentH = 0;
+    let isFirstPage = true;
+
+    for (let i = 0; i < productsToPaginate.length; i++) {
+      const rowH = heights[i];
+      const limit = isFirstPage ? page1Limit : nextPageLimit;
+
+      if (currentPage.length > 0 && (currentH + rowH > limit)) {
+        pages.push(currentPage);
+        currentPage = [productsToPaginate[i]];
+        currentH = rowH;
+        isFirstPage = false;
+      } else {
+        currentPage.push(productsToPaginate[i]);
+        currentH += rowH;
+      }
+    }
+    if (currentPage.length > 0) {
+      pages.push(currentPage);
+    }
+    return pages;
+  };
+
+  const renderPriceTablePageHTML = (
+    pageProducts: Product[],
+    pageNum: number,
+    totalPages: number,
+    sectorName: string,
+    isAllSectors: boolean
+  ): string => {
+    const title = companyInfo?.name || 'Tabela de Preços';
+    const now = new Date();
+    const nowDateFormatted = `${now.toLocaleDateString('pt-BR')} às ${now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+
+    const sortDescription = priceTableSortBy === 'code' 
+      ? 'Código' 
+      : priceTableSortBy === 'internalCode' 
+        ? 'Código Interno' 
+        : 'Item / Ordem Alfabética';
+
+    return `
+      <div class="price-table-page" style="width: 794px; min-height: 1123px; max-height: 1123px; height: 1123px; box-sizing: border-box; padding: 24px 30px; display: flex; flex-direction: column; justify-content: space-between; background: #ffffff; page-break-after: ${pageNum < totalPages ? 'always' : 'avoid'}; break-after: ${pageNum < totalPages ? 'page' : 'avoid'}; overflow: hidden;">
+        <div style="flex: 1 1 auto; display: flex; flex-direction: column;">
+          ${pageNum === 1 ? `
+            <!-- Cabeçalho Completo da Empresa (Página 1) -->
+            <div class="company-header" style="text-align: center; margin-bottom: 8px; border-bottom: 1px solid #cbd5e1; padding-bottom: 6px;">
+              ${logo ? `<img src="${logo}" alt="Logotipo" style="max-height: 50px; margin: 0 auto 4px; display: block; object-fit: contain;"/>` : ''}
+              ${companyInfo?.name ? `<div style="font-size: 15px; font-weight: 700; color: #0f172a; margin-bottom: 2px;">${companyInfo.name}</div>` : ''}
+              ${companyInfo?.address ? `<p style="font-size: 11px; margin: 1px 0; color: #475569;">${companyInfo.address}${companyInfo.city ? `, ${companyInfo.city}` : ''}${companyInfo.zipCode ? ` - ${companyInfo.zipCode}` : ''}</p>` : ''}
+              ${companyInfo?.cnpj ? `<p style="font-size: 11px; margin: 1px 0; color: #475569;">CNPJ: ${companyInfo.cnpj}</p>` : ''}
+              ${companyInfo?.phone || companyInfo?.email ? `<p style="font-size: 11px; margin: 1px 0; color: #475569;">${companyInfo.phone ? `Tel: ${companyInfo.phone}` : ''}${companyInfo.phone && companyInfo.email ? ' | ' : ''}${companyInfo.email ? `Email: ${companyInfo.email}` : ''}</p>` : ''}
+            </div>
+
+            <!-- Título e Faixa do Setor com Número de Páginas -->
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px; padding-bottom: 5px; border-bottom: 2px solid #2563eb;">
+              <div>
+                <h2 style="font-size: 17px; font-weight: 700; margin: 0; color: #1e293b;">${title}</h2>
+                <div style="font-size: 12.5px; font-weight: 600; color: #2563eb; margin-top: 2px;">
+                  Setor: ${sectorName}
+                  <span style="font-size: 10px; font-weight: normal; color: #64748b; margin-left: 6px;">
+                    (Ordenado por: ${sortDescription})
+                  </span>
+                </div>
+              </div>
+              <div style="font-size: 11px; font-weight: 700; color: #1e293b; background: #f1f5f9; padding: 4px 10px; border-radius: 4px; border: 1px solid #cbd5e1; white-space: nowrap;">
+                Página ${pageNum} de ${totalPages}
+              </div>
+            </div>
+          ` : `
+            <!-- Cabeçalho Repetido Compacto (Páginas Seguintes: 2, 3...) -->
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 2px solid #2563eb;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                ${logo ? `<img src="${logo}" alt="Logotipo" style="max-height: 28px; max-width: 65px; object-fit: contain; display: inline-block;"/>` : ''}
+                <div>
+                  <div style="font-size: 13px; font-weight: 700; color: #0f172a; line-height: 1.2;">
+                    ${companyInfo?.name || 'Tabela de Preços'}
+                  </div>
+                  <div style="font-size: 11.5px; font-weight: 600; color: #2563eb;">
+                    Setor: ${sectorName} <span style="font-size: 10px; font-weight: normal; color: #64748b;">(Continuação)</span>
+                  </div>
+                </div>
+              </div>
+              <div style="font-size: 11px; font-weight: 700; color: #1e293b; background: #f1f5f9; padding: 4px 10px; border-radius: 4px; border: 1px solid #cbd5e1; white-space: nowrap;">
+                Página ${pageNum} de ${totalPages}
+              </div>
+            </div>
+          `}
+
+          <!-- Tabela com THEAD que repete em todas as páginas -->
+          <table style="width: 100%; border-collapse: collapse; margin-top: 2px;">
+            ${renderPriceTableHeaderHTML()}
+            <tbody>
+              ${pageProducts.map(renderPriceTableRowHTML).join('')}
+            </tbody>
+          </table>
         </div>
-        <table>
-          <thead>
-            <tr>
-              ${quoteSettings.showImageInPriceTable ? '<th style="text-align: center; width: 50px;">Imagem</th>' : ''}
-              <th style="text-align: left; width: 80px;">Código</th>
-              ${quoteSettings.showInternalCodeInPriceTable ? '<th style="text-align: left; width: 95px;">Cód. Interno</th>' : ''}
-              <th style="text-align: left;">Item</th>
-              ${quoteSettings.showStockInPriceTable ? '<th style="text-align: center; width: 85px;">Estoque</th>' : ''}
-              ${quoteSettings.showItemDiscountPercent ? `
-                <th style="text-align: right; width: 125px;">Preço de Tabela</th>
-                <th style="text-align: center; width: 90px;">Desconto</th>
-                <th style="text-align: right; width: 125px;">Preço Final</th>
-              ` : `
-                <th style="text-align: right; width: 125px;">Preço de Venda</th>
-              `}
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
-        <div style="text-align: right; font-size: 11px; color: #94a3b8; margin-top: 8px;">
-          Gerado em: ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+
+        <!-- Rodapé da Página -->
+        <div style="margin-top: auto; padding-top: 6px; border-top: 1px solid #e2e8f0; display: flex; justify-content: space-between; align-items: center; font-size: 10px; color: #64748b;">
+          <span>Tabela de Preços - ${sectorName}</span>
+          <span>Gerado em: ${nowDateFormatted}</span>
+          <span style="font-weight: 600; color: #334155;">Página ${pageNum} de ${totalPages}</span>
         </div>
       </div>
     `;
@@ -1066,8 +1178,76 @@ const Products: React.FC<ProductsProps> = ({
       return;
     }
     const displayName = isAll ? 'Todos os Setores (Tabela Completa)' : sectorName;
-    const printHtml = generateSectorPriceTablePrintHTML(displayName, sectorProducts);
-    
+    const sortedProducts = getSortedSectorProducts(displayName, sectorProducts);
+    const pages = paginatePriceTableProducts(sortedProducts);
+    const totalPages = pages.length;
+
+    const pagesHtml = pages.map((pageItems, pIdx) => {
+      return renderPriceTablePageHTML(
+        pageItems,
+        pIdx + 1,
+        totalPages,
+        displayName,
+        isAll
+      );
+    }).join('');
+
+    const fullPrintHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Tabela de Preços - ${displayName}</title>
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 0;
+          }
+          * {
+            box-sizing: border-box;
+          }
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0;
+            padding: 0;
+            background: #ffffff;
+            color: #334155;
+            -webkit-print-color-adjust: exact;
+            print-color-adjust: exact;
+          }
+          .price-table-page {
+            width: 210mm !important;
+            height: 297mm !important;
+            min-height: 297mm !important;
+            max-height: 297mm !important;
+            padding: 12mm 14mm 10mm 14mm !important;
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+          .price-table-page:not(:last-child) {
+            page-break-after: always !important;
+            break-after: page !important;
+          }
+          .price-table-page:last-child {
+            page-break-after: avoid !important;
+            break-after: avoid !important;
+          }
+          table {
+            border-collapse: collapse;
+            width: 100%;
+          }
+          tr {
+            page-break-inside: avoid !important;
+            break-inside: avoid !important;
+          }
+        </style>
+      </head>
+      <body>
+        ${pagesHtml}
+      </body>
+      </html>
+    `;
+
     // Impressão via iframe para evitar reload da página e perda de estado
     const printIframe = document.createElement('iframe');
     printIframe.style.position = 'fixed';
@@ -1081,7 +1261,7 @@ const Products: React.FC<ProductsProps> = ({
     const doc = printIframe.contentWindow?.document;
     if (doc) {
       doc.open();
-      doc.write(printHtml);
+      doc.write(fullPrintHtml);
       doc.close();
       setTimeout(() => {
         printIframe.contentWindow?.focus();
@@ -1091,10 +1271,10 @@ const Products: React.FC<ProductsProps> = ({
             document.body.removeChild(printIframe);
           }
         }, 1500);
-      }, 300);
+      }, 350);
     } else {
       const originalContents = document.body.innerHTML;
-      document.body.innerHTML = printHtml;
+      document.body.innerHTML = fullPrintHtml;
       window.print();
       document.body.innerHTML = originalContents;
       window.location.reload();
@@ -1119,31 +1299,19 @@ const Products: React.FC<ProductsProps> = ({
     }
 
     const displayName = isAll ? 'Todos os Setores (Tabela Completa)' : sectorName;
-    const htmlContent = generateSectorPriceTablePrintHTML(displayName, sectorProducts);
+    const sortedProducts = getSortedSectorProducts(displayName, sectorProducts);
+    const pages = paginatePriceTableProducts(sortedProducts);
+    const totalPages = pages.length;
+
     const container = document.createElement('div');
     container.style.position = 'absolute';
     container.style.left = '-9999px';
     container.style.top = '0px';
-    container.style.width = '210mm';
+    container.style.width = '794px';
     container.style.backgroundColor = '#ffffff';
-    container.innerHTML = htmlContent;
     document.body.appendChild(container);
 
     try {
-      await new Promise(resolve => setTimeout(resolve, 150));
-      const fullHeight = Math.max(container.scrollHeight, container.offsetHeight, 800);
-      const fullWidth = Math.max(container.scrollWidth, container.offsetWidth, 794);
-
-      // @ts-ignore
-      const canvas = await window.html2canvas(container, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        width: fullWidth,
-        height: fullHeight,
-      });
-
-      const imgData = canvas.toDataURL('image/png');
       // @ts-ignore
       const { jsPDF } = window.jspdf;
       const pdf = new jsPDF({
@@ -1154,30 +1322,37 @@ const Products: React.FC<ProductsProps> = ({
 
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgProps = pdf.getImageProperties(imgData);
 
-      const margin = 10;
-      const printableWidth = pdfWidth - (margin * 2);
-      const printableHeight = pdfHeight - (margin * 2);
-      const imgHeightInPdf = (imgProps.height * printableWidth) / imgProps.width;
+      for (let pIdx = 0; pIdx < totalPages; pIdx++) {
+        const pageHtml = renderPriceTablePageHTML(
+          pages[pIdx],
+          pIdx + 1,
+          totalPages,
+          displayName,
+          isAll
+        );
+        container.innerHTML = pageHtml;
 
-      if (imgHeightInPdf <= printableHeight) {
-        pdf.addImage(imgData, 'PNG', margin, margin, printableWidth, imgHeightInPdf);
-      } else if (imgHeightInPdf <= printableHeight * 1.25) {
-        const scale = printableHeight / imgHeightInPdf;
-        const scaledWidth = printableWidth * scale;
-        const xOffset = margin + (printableWidth - scaledWidth) / 2;
-        pdf.addImage(imgData, 'PNG', xOffset, margin, scaledWidth, printableHeight);
-      } else {
-        let heightLeft = imgHeightInPdf;
-        let pageCount = 0;
-        while (heightLeft > 0) {
-          if (pageCount > 0) pdf.addPage();
-          const position = margin - (pageCount * printableHeight);
-          pdf.addImage(imgData, 'PNG', margin, position, printableWidth, imgHeightInPdf);
-          heightLeft -= printableHeight;
-          pageCount++;
+        // Breve espera para renderização estável das tags e fontes
+        await new Promise(resolve => setTimeout(resolve, 80));
+
+        const pageEl = container.firstElementChild as HTMLElement;
+
+        // @ts-ignore
+        const canvas = await window.html2canvas(pageEl || container, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          width: 794,
+          height: 1123,
+          windowWidth: 794,
+        });
+
+        const imgData = canvas.toDataURL('image/png');
+        if (pIdx > 0) {
+          pdf.addPage();
         }
+        pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
       }
 
       const date = new Date().toISOString().slice(0, 10);
