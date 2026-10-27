@@ -1198,6 +1198,13 @@ const App: React.FC = () => {
     safeSetItem('products', JSON.stringify(updatedProducts));
     saveToIndexedDB('products', updatedProducts);
     pushToCloud(clients, updatedProducts, savedQuotes, companyInfo, quoteSettings);
+
+    const token = googleAccessToken || getGoogleAccessToken();
+    if (token) {
+      updateProductsTabInGoogleSheet(token, updatedProducts, googleUser?.uid).catch((err) => {
+        console.warn('Não foi possível atualizar produtos na planilha Google:', err);
+      });
+    }
   };
 
   const deleteProduct = (id: string) => {
@@ -1206,6 +1213,13 @@ const App: React.FC = () => {
     safeSetItem('products', JSON.stringify(updatedProducts));
     saveToIndexedDB('products', updatedProducts);
     pushToCloud(clients, updatedProducts, savedQuotes, companyInfo, quoteSettings);
+
+    const token = googleAccessToken || getGoogleAccessToken();
+    if (token) {
+      updateProductsTabInGoogleSheet(token, updatedProducts, googleUser?.uid).catch((err) => {
+        console.warn('Não foi possível atualizar produtos na planilha Google após exclusão:', err);
+      });
+    }
   };
 
   const saveQuote = (quoteData: Omit<SavedQuote, 'id'>) => {

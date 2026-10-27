@@ -208,8 +208,193 @@ export const createDatabaseSpreadsheet = async (accessToken: string, userId?: st
   return { id: spreadsheetId, url: spreadsheetUrl, isShared: false };
 };
 
+const FOLDER_ID_KEY = 'svo_drive_images_folder_id';
+
 /**
- * Writes the initial column headers to each sheet.
+ * Gets or creates a dedicated "SVO - Imagens" folder in Google Drive to keep product photos organized.
+ */
+export const getOrCreateImagesFolder = async (accessToken: string): Promise<string | null> => {
+  const cachedFolderId = localStorage.getItem(FOLDER_ID_KEY);
+  if (cachedFolderId) {
+    return cachedFolderId;
+  }
+
+  try {
+    const query = encodeURIComponent("name = 'SVO - Imagens' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+    const searchRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&fields=files(id,name)&pageSize=1`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (searchRes.ok) {
+      const searchData = await searchRes.json();
+      if (searchData.files && searchData.files.length > 0) {
+        const folderId = searchData.files[0].id;
+        localStorage.setItem(FOLDER_ID_KEY, folderId);
+        return folderId;
+      }
+    }
+
+    const createRes = await fetch('https://www.googleapis.com/drive/v3/files', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'SVO - Imagens',
+        mimeType: 'application/vnd.google-apps.folder',
+      }),
+    });
+    if (createRes.ok) {
+      const folderData = await createRes.json();
+      const folderId = folderData.id;
+      localStorage.setItem(FOLDER_ID_KEY, folderId);
+      try {
+        await fetch(`https://www.googleapis.com/drive/v3/files/${folderId}/permissions`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+        });
+      } catch {}
+      return folderId;
+    }
+  } catch (err) {
+    console.warn('Aviso ao obter/criar pasta de imagens no Google Drive:', err);
+  }
+  return null;
+};
+
+/**
+ * Uploads a product image (base64) to Google Drive and makes it viewable in Google Sheets.
+ */
+export const uploadProductImageToDrive = async (
+  accessToken: string,
+  base64OrUrl: string,
+  productCodeOrName: string
+): Promise<{ fileId?: string; viewUrl?: string; imageUrl: string } | null> => {
+  if (!base64OrUrl || !base64OrUrl.trim()) return null;
+
+  if (base64OrUrl.startsWith('http://') || base64OrUrl.startsWith('https://')) {
+    return { imageUrl: base64OrUrl, viewUrl: base64OrUrl };
+  }
+
+  if (!base64OrUrl.startsWith('data:')) {
+    return null;
+  }
+
+  try {
+    const mimeMatch = base64OrUrl.match(/^data:([^;]+);base64,(.+)$/);
+    if (!mimeMatch) return null;
+    const mimeType = mimeMatch[1] || 'image/jpeg';
+    const base64Data = mimeMatch[2];
+
+    const safeName = (productCodeOrName || 'produto').replace(/[^a-zA-Z0-9_-]/g, '_');
+    const ext = mimeType.includes('png') ? 'png' : 'jpg';
+    const fileName = `foto_${safeName}_${Date.now()}.${ext}`;
+
+    const folderId = await getOrCreateImagesFolder(accessToken);
+
+    const metadata: any = {
+      name: fileName,
+      mimeType,
+      description: `Foto do item ${productCodeOrName} (SVO)`,
+    };
+    if (folderId) {
+      metadata.parents = [folderId];
+    }
+
+    const boundary = '-------svo_drive_upload_boundary_314159';
+    const body = 
+      `--${boundary}\r\n` +
+      `Content-Type: application/json; charset=UTF-8\r\n\r\n` +
+      `${JSON.stringify(metadata)}\r\n` +
+      `--${boundary}\r\n` +
+      `Content-Type: ${mimeType}\r\n` +
+      `Content-Transfer-Encoding: base64\r\n\r\n` +
+      `${base64Data}\r\n` +
+      `--${boundary}--`;
+
+    const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,thumbnailLink', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        'Content-Type': `multipart/related; boundary=${boundary}`,
+      },
+      body,
+    });
+
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text();
+      console.warn('Falha no upload da foto para o Google Drive:', errText);
+      return null;
+    }
+
+    const fileData = await uploadRes.json();
+    const fileId = fileData.id;
+
+    // Permitir leitura pública para que a fórmula =IMAGE() do Google Planilhas renderize a miniatura
+    try {
+      await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}/permissions`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          role: 'reader',
+          type: 'anyone',
+        }),
+      });
+    } catch (permErr) {
+      console.warn('Aviso ao ajustar permissão da foto no Drive:', permErr);
+    }
+
+    const directImageUrl = `https://drive.google.com/thumbnail?id=${fileId}&sz=w800`;
+    const viewUrl = fileData.webViewLink || `https://drive.google.com/file/d/${fileId}/view`;
+
+    return { fileId, viewUrl, imageUrl: directImageUrl };
+  } catch (err) {
+    console.warn('Erro ao processar imagem para o Google Drive:', err);
+    return null;
+  }
+};
+
+/**
+ * Formats a product's image for Google Sheets:
+ * - If base64: uploads to Google Drive and sets =IMAGE("https://drive.google.com/thumbnail?id=...")
+ * - If already a URL: sets =IMAGE("https://...")
+ */
+export const formatImageCell = async (accessToken: string, product: Product): Promise<string> => {
+  if (!product.image || !product.image.trim()) return '';
+
+  const imgStr = product.image.trim();
+  if (imgStr.startsWith('http://') || imgStr.startsWith('https://')) {
+    return `=IMAGE("${imgStr}")`;
+  }
+
+  if (imgStr.startsWith('data:')) {
+    try {
+      const uploadRes = await uploadProductImageToDrive(accessToken, imgStr, product.code || product.name);
+      if (uploadRes?.imageUrl) {
+        return `=IMAGE("${uploadRes.imageUrl}")`;
+      }
+    } catch (e) {
+      console.warn('Aviso ao enviar imagem para o Google Drive:', e);
+    }
+
+    // Fallback: se estiver abaixo de 45.000 caracteres, salva o data URL diretamente
+    if (imgStr.length < 45000) {
+      return imgStr;
+    }
+  }
+
+  return '';
+};
+
+/**
+ * Writes the initial column headers to each sheet, including the "Foto / Imagem" column.
  */
 export const initializeSpreadsheetHeaders = async (spreadsheetId: string, accessToken: string) => {
   const productsHeader = [
@@ -223,6 +408,7 @@ export const initializeSpreadsheetHeaders = async (spreadsheetId: string, access
     'Desconto (%)',
     'Preço c/ Desconto (R$)',
     'Estoque',
+    'Foto / Imagem',
     'Observação',
     'Data de Atualização'
   ];
@@ -261,7 +447,7 @@ export const initializeSpreadsheetHeaders = async (spreadsheetId: string, access
 
   const data = [
     {
-      range: "'Produtos & Serviços'!A1:L1",
+      range: "'Produtos & Serviços'!A1:M1",
       values: [productsHeader],
     },
     {
@@ -289,6 +475,34 @@ export const initializeSpreadsheetHeaders = async (spreadsheetId: string, access
 };
 
 /**
+ * Checks if the existing spreadsheet's "Produtos & Serviços" tab has the "Foto / Imagem" column,
+ * and updates the header row if it is missing.
+ */
+export const ensureProductsHeaderHasImageColumn = async (spreadsheetId: string, accessToken: string) => {
+  try {
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'Produtos %26 Serviços'!A1:Z1`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const headers: string[] = data.values?.[0] || [];
+    if (headers.length === 0) {
+      await initializeSpreadsheetHeaders(spreadsheetId, accessToken);
+      return;
+    }
+    const hasImageCol = headers.some(h => {
+      const lower = String(h || '').toLowerCase();
+      return lower.includes('imagem') || lower.includes('foto');
+    });
+    if (!hasImageCol) {
+      await initializeSpreadsheetHeaders(spreadsheetId, accessToken);
+    }
+  } catch (err) {
+    console.warn('Aviso ao verificar coluna de foto na planilha:', err);
+  }
+};
+
+/**
  * Ensures a valid spreadsheet exists or creates one.
  * Supports both shared company spreadsheets (multi-users) and personal Google Drive spreadsheets.
  */
@@ -309,9 +523,8 @@ export const ensureDatabaseSpreadsheet = async (
         const file = await verifyRes.json();
         if (!file.trashed) {
           const url = file.webViewLink || getSharedSpreadsheetUrl() || `https://docs.google.com/spreadsheets/d/${sharedId}/edit`;
-          // Attempt initializing headers if needed
           try {
-            await initializeSpreadsheetHeaders(sharedId, accessToken);
+            await ensureProductsHeaderHasImageColumn(sharedId, accessToken);
           } catch {
             // Sheet might already be structured
           }
@@ -342,6 +555,9 @@ export const ensureDatabaseSpreadsheet = async (
         if (!file.trashed) {
           const url = file.webViewLink || savedUrl || `https://docs.google.com/spreadsheets/d/${savedId}/edit`;
           saveSpreadsheetInfo(savedId, url, userId);
+          try {
+            await ensureProductsHeaderHasImageColumn(savedId, accessToken);
+          } catch {}
           return { id: savedId, url, isShared: false };
         }
       }
@@ -355,6 +571,9 @@ export const ensureDatabaseSpreadsheet = async (
   if (existing) {
     const url = existing.webViewLink || `https://docs.google.com/spreadsheets/d/${existing.id}/edit`;
     saveSpreadsheetInfo(existing.id, url, userId);
+    try {
+      await ensureProductsHeaderHasImageColumn(existing.id, accessToken);
+    } catch {}
     return { id: existing.id, url, isShared: false };
   }
 
@@ -364,6 +583,7 @@ export const ensureDatabaseSpreadsheet = async (
 
 /**
  * Appends a new product/service or multiple products to the Google Sheet.
+ * If products have images, uploads them to Google Drive and inserts the =IMAGE() formula into the sheet.
  */
 export const appendProductsToGoogleSheet = async (
   accessToken: string,
@@ -374,7 +594,10 @@ export const appendProductsToGoogleSheet = async (
   const { id: spreadsheetId } = await ensureDatabaseSpreadsheet(accessToken, userId);
   const now = new Date().toLocaleString('pt-BR');
 
-  const rows = products.map(p => {
+  // Process all product images (Drive upload / formula)
+  const imageCells = await Promise.all(products.map(p => formatImageCell(accessToken, p)));
+
+  const rows = products.map((p, idx) => {
     const hasDiscount = typeof p.discountPercent === 'number' && p.discountPercent > 0;
     const discountedPrice = hasDiscount ? p.sellPrice * (1 - p.discountPercent! / 100) : p.sellPrice;
     return [
@@ -388,12 +611,13 @@ export const appendProductsToGoogleSheet = async (
       hasDiscount ? `${p.discountPercent}%` : '-',
       hasDiscount ? formatBRL(discountedPrice) : formatBRL(p.sellPrice),
       p.type === 'service' ? '-' : (p.stock ?? 0),
+      imageCells[idx] || '',
       p.observation || '',
       now,
     ];
   });
 
-  const range = encodeURIComponent("'Produtos & Serviços'!A:L");
+  const range = encodeURIComponent("'Produtos & Serviços'!A:M");
   await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/${range}:append?valueInputOption=USER_ENTERED`, {
     method: 'POST',
     headers: {
@@ -407,7 +631,7 @@ export const appendProductsToGoogleSheet = async (
 };
 
 /**
- * Updates the 'Produtos & Serviços' tab in Google Sheets with fresh product stocks.
+ * Updates the 'Produtos & Serviços' tab in Google Sheets with fresh product stocks and images.
  */
 export const updateProductsTabInGoogleSheet = async (
   accessToken: string,
@@ -418,7 +642,10 @@ export const updateProductsTabInGoogleSheet = async (
   const { id: spreadsheetId } = await ensureDatabaseSpreadsheet(accessToken, userId);
   const now = new Date().toLocaleString('pt-BR');
 
-  const productRows = products.map(p => {
+  // Process all product images (Drive upload / formula)
+  const imageCells = await Promise.all(products.map(p => formatImageCell(accessToken, p)));
+
+  const productRows = products.map((p, idx) => {
     const hasDiscount = typeof p.discountPercent === 'number' && p.discountPercent > 0;
     const discountedPrice = hasDiscount ? p.sellPrice * (1 - p.discountPercent! / 100) : p.sellPrice;
     return [
@@ -432,13 +659,14 @@ export const updateProductsTabInGoogleSheet = async (
       hasDiscount ? `${p.discountPercent}%` : '-',
       hasDiscount ? formatBRL(discountedPrice) : formatBRL(p.sellPrice),
       p.type === 'service' ? '-' : (p.stock ?? 0),
+      imageCells[idx] || '',
       p.observation || '',
       now,
     ];
   });
 
-  // Clear existing product rows below headers
-  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'Produtos %26 Serviços'!A2:L:clear`, {
+  // Clear existing product rows below headers (columns A through M)
+  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'Produtos %26 Serviços'!A2:M:clear`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${accessToken}`,
@@ -576,8 +804,9 @@ export const fullSyncToGoogleSheet = async (
   });
   await checkGoogleApiResponse(clearRes, 'Falha ao limpar dados antigos da planilha');
 
-  // Prepare products rows
-  const productRows = products.map(p => {
+  // Prepare products rows (including Foto / Imagem)
+  const imageCells = await Promise.all(products.map(p => formatImageCell(accessToken, p)));
+  const productRows = products.map((p, idx) => {
     const hasDiscount = typeof p.discountPercent === 'number' && p.discountPercent > 0;
     const discountedPrice = hasDiscount ? p.sellPrice * (1 - p.discountPercent! / 100) : p.sellPrice;
     return [
@@ -591,6 +820,7 @@ export const fullSyncToGoogleSheet = async (
       hasDiscount ? `${p.discountPercent}%` : '-',
       hasDiscount ? formatBRL(discountedPrice) : formatBRL(p.sellPrice),
       p.type === 'service' ? '-' : (p.stock ?? 0),
+      imageCells[idx] || '',
       p.observation || '',
       now,
     ];
@@ -718,22 +948,26 @@ export const importFromGoogleSheet = async (
 ): Promise<GoogleSheetsImportResult> => {
   const { id: spreadsheetId } = await ensureDatabaseSpreadsheet(accessToken, userId);
 
-  // Fetch both tabs in a single batchGet request
-  const rangeProducts = encodeURIComponent("'Produtos & Serviços'!A1:L");
+  // Fetch both tabs with FORMATTED_VALUE, and also fetch Products with FORMULA to capture =IMAGE formulas
+  const rangeProducts = encodeURIComponent("'Produtos & Serviços'!A1:M");
   const rangeClients = encodeURIComponent("'Clientes'!A1:K");
-  const url = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=${rangeProducts}&ranges=${rangeClients}`;
+  const urlFormatted = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values:batchGet?ranges=${rangeProducts}&ranges=${rangeClients}&valueRenderOption=FORMATTED_VALUE`;
+  const urlFormulas = `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}/values/'Produtos %26 Serviços'!A1:M?valueRenderOption=FORMULA`;
 
-  const response = await fetch(url, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  const [responseFormatted, responseFormulas] = await Promise.all([
+    fetch(urlFormatted, { headers: { Authorization: `Bearer ${accessToken}` } }),
+    fetch(urlFormulas, { headers: { Authorization: `Bearer ${accessToken}` } }),
+  ]);
 
-  await checkGoogleApiResponse(response, 'Falha ao ler dados da planilha do Google');
+  await checkGoogleApiResponse(responseFormatted, 'Falha ao ler dados da planilha do Google');
 
-  const data = await response.json();
-  const valueRanges = data.valueRanges || [];
+  const dataFormatted = await responseFormatted.json();
+  const dataFormulas = responseFormulas.ok ? await responseFormulas.json() : null;
 
-  const productsValueRange = valueRanges[0]?.values || [];
-  const clientsValueRange = valueRanges[1]?.values || [];
+  const valueRanges = dataFormatted.valueRanges || [];
+  const productsValueRange: any[][] = valueRanges[0]?.values || [];
+  const clientsValueRange: any[][] = valueRanges[1]?.values || [];
+  const formulasValueRange: any[][] = dataFormulas?.values || [];
 
   // Helper to map header columns dynamically
   const getColIdx = (headers: string[], ...keywords: string[]): number => {
@@ -767,6 +1001,7 @@ export const importFromGoogleSheet = async (
     const sellIdx = getColIdx(rawHeaders, 'venda');
     const discountIdx = getColIdx(rawHeaders, 'desconto (%)', 'desconto');
     const stockIdx = getColIdx(rawHeaders, 'estoque', 'quant');
+    const imageIdx = getColIdx(rawHeaders, 'foto', 'imagem', 'image', 'picture');
     const obsIdx = getColIdx(rawHeaders, 'observação', 'observacao', 'obs');
 
     for (let i = 1; i < productsValueRange.length; i++) {
@@ -790,6 +1025,22 @@ export const importFromGoogleSheet = async (
       const stockVal = isService ? 0 : (stockIdx !== -1 ? (parseInt(String(row[stockIdx]).replace(/\D/g, ''), 10) || 0) : 0);
       const obsVal = obsIdx !== -1 ? row[obsIdx]?.trim() || undefined : undefined;
 
+      // Image extraction from formula or direct value
+      let rawImage = (imageIdx !== -1 ? row[imageIdx]?.trim() : '') || '';
+      if (!rawImage && imageIdx !== -1 && formulasValueRange[i] && formulasValueRange[i][imageIdx]) {
+        rawImage = String(formulasValueRange[i][imageIdx]).trim();
+      }
+
+      let effectiveImage: string | undefined = undefined;
+      if (rawImage && rawImage !== '-') {
+        const formulaMatch = rawImage.match(/IMAGE\s*\(\s*["']([^"']+)["']/i);
+        if (formulaMatch && formulaMatch[1]) {
+          effectiveImage = formulaMatch[1];
+        } else if (rawImage.startsWith('http://') || rawImage.startsWith('https://') || rawImage.startsWith('data:image/')) {
+          effectiveImage = rawImage;
+        }
+      }
+
       const existingEntry = productMap.get(effectiveCode.toLowerCase().trim());
       if (existingEntry) {
         const { product: existing, index: pIdx } = existingEntry;
@@ -800,7 +1051,8 @@ export const importFromGoogleSheet = async (
           existing.costPrice !== costPriceVal ||
           (!isService && existing.stock !== stockVal) ||
           (sectorVal && existing.sector !== sectorVal) ||
-          (obsVal && existing.observation !== obsVal);
+          (obsVal && existing.observation !== obsVal) ||
+          (effectiveImage && existing.image !== effectiveImage);
 
         if (changed) {
           const updated: Product = {
@@ -812,6 +1064,7 @@ export const importFromGoogleSheet = async (
             costPrice: costPriceVal || existing.costPrice,
             sellPrice: sellPriceVal || existing.sellPrice,
             stock: isService ? 0 : stockVal,
+            image: effectiveImage || existing.image,
             observation: obsVal || existing.observation,
             discountPercent: discountVal !== undefined ? discountVal : existing.discountPercent,
             updatedAt: new Date().toISOString(),
@@ -832,6 +1085,7 @@ export const importFromGoogleSheet = async (
           costPrice: costPriceVal,
           sellPrice: sellPriceVal,
           stock: isService ? 0 : stockVal,
+          image: effectiveImage,
           observation: obsVal,
           discountPercent: discountVal,
           updatedAt: new Date().toISOString(),
