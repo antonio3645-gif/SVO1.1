@@ -100,9 +100,10 @@ export async function saveUserCloudData(
     professionalSegment?: string;
     customSegmentName?: string;
   }
-): Promise<void> {
-  if (!uid || !db) return;
+): Promise<number> {
+  if (!uid || !db) return 0;
   const path = `users/${uid}/data/current`;
+  const now = Date.now();
 
   const payload: UserIsolatedData = {
     uid,
@@ -113,10 +114,23 @@ export async function saveUserCloudData(
     quoteSettings: data.quoteSettings || null,
     professionalSegment: data.professionalSegment || data.companyInfo?.professionalSegment || 'personalizado',
     customSegmentName: data.customSegmentName || data.companyInfo?.customSegmentName || '',
-    lastUpdated: Date.now(),
+    lastUpdated: now,
   };
 
-  const cleanPayload = sanitizeDataForFirestore(payload);
+  let cleanPayload = sanitizeDataForFirestore(payload);
+
+  // Guard against Firestore 1MB document limit: if payload size approaches limit, optimize oversized base64
+  try {
+    const rawLen = JSON.stringify(cleanPayload).length;
+    if (rawLen > 850000 && Array.isArray(cleanPayload.products)) {
+      cleanPayload.products = cleanPayload.products.map(p => {
+        if (p.image && p.image.startsWith('data:') && p.image.length > 20000) {
+          return { ...p, image: undefined };
+        }
+        return p;
+      });
+    }
+  } catch {}
 
   try {
     const dataDocRef = doc(db, 'users', uid, 'data', 'current');
@@ -133,8 +147,11 @@ export async function saveUserCloudData(
       customSegmentName: payload.customSegmentName,
       lastUpdated: payload.lastUpdated,
     }, { merge: true });
+
+    return now;
   } catch (err) {
     handleFirestoreError(err, OperationType.WRITE, path);
+    return now;
   }
 }
 

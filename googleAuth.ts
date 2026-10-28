@@ -39,9 +39,10 @@ export const initGoogleAuth = (
 ) => {
   return onAuthStateChanged(auth, async (user: User | null) => {
     if (user && !user.isAnonymous) {
-      if (onAuthSuccess) onAuthSuccess(user, cachedAccessToken || '');
+      const token = getGoogleAccessToken() || '';
+      if (onAuthSuccess) onAuthSuccess(user, token);
     } else {
-      cachedAccessToken = null;
+      setCachedGoogleAccessToken(null);
       if (onAuthFailure) onAuthFailure();
     }
   });
@@ -60,8 +61,11 @@ export const signInWithGoogle = async (options?: { forceSelectAccount?: boolean;
     }
     const result = await signInWithPopup(auth, provider);
     const credential = GoogleAuthProvider.credentialFromResult(result);
-    cachedAccessToken = credential?.accessToken || null;
-    return { user: result.user, accessToken: cachedAccessToken || '' };
+    const token = credential?.accessToken || null;
+    if (token) {
+      setCachedGoogleAccessToken(token);
+    }
+    return { user: result.user, accessToken: token || '' };
   } catch (error: any) {
     // Normal user cancellation: user closed popup or switched away
     if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') {
@@ -108,15 +112,37 @@ export const requestGoogleSheetsAccess = async (): Promise<{ user: User; accessT
 };
 
 export const getGoogleAccessToken = (): string | null => {
-  return cachedAccessToken;
+  if (cachedAccessToken) return cachedAccessToken;
+  try {
+    const stored = localStorage.getItem('google_access_token');
+    const storedTime = localStorage.getItem('google_access_token_timestamp');
+    if (stored && storedTime) {
+      const elapsed = Date.now() - parseInt(storedTime, 10);
+      // Valid for up to 55 minutes (Google OAuth tokens expire in 60m)
+      if (elapsed < 55 * 60 * 1000) {
+        cachedAccessToken = stored;
+        return stored;
+      }
+    }
+  } catch {}
+  return null;
 };
 
 export const setCachedGoogleAccessToken = (token: string | null) => {
   cachedAccessToken = token;
+  try {
+    if (token) {
+      localStorage.setItem('google_access_token', token);
+      localStorage.setItem('google_access_token_timestamp', String(Date.now()));
+    } else {
+      localStorage.removeItem('google_access_token');
+      localStorage.removeItem('google_access_token_timestamp');
+    }
+  } catch {}
 };
 
 export const logoutGoogle = async () => {
-  cachedAccessToken = null;
+  setCachedGoogleAccessToken(null);
   try {
     await signOut(auth);
   } catch (err) {

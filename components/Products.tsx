@@ -262,7 +262,7 @@ const Products: React.FC<ProductsProps> = ({
   const handleConfirmCapturedPhoto = async () => {
     if (!capturedPhoto) return;
     try {
-      const compressed = await compressImage(capturedPhoto, 400, 400, 0.7);
+      const compressed = await compressImage(capturedPhoto, 320, 320, 0.65);
       setImage(compressed);
     } catch {
       setImage(capturedPhoto);
@@ -289,7 +289,7 @@ const Products: React.FC<ProductsProps> = ({
         const reader = new FileReader();
         reader.onloadend = async () => {
             const raw = reader.result as string;
-            const compressed = await compressImage(raw, 400, 400, 0.7);
+            const compressed = await compressImage(raw, 320, 320, 0.65);
             setImage(compressed);
         };
         reader.readAsDataURL(file);

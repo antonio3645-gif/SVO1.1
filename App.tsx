@@ -13,7 +13,7 @@ import { PriceTagIcon } from './components/icons/PriceTagIcon';
 import { SettingsIcon } from './components/icons/SettingsIcon';
 import { safeSetItem, compressImage, decodeUnicodeBase64, sanitizeDataForFirestore } from './utils/storage';
 import { saveToIndexedDB, loadFromIndexedDB } from './utils/indexedDB';
-import { db, doc, setDoc, getDoc, onSnapshot, ensureAuth } from './firebase';
+import { db, auth, doc, setDoc, getDoc, onSnapshot, ensureAuth } from './firebase';
 import { 
   initGoogleAuth, 
   signInWithGoogle, 
@@ -32,7 +32,8 @@ import {
   importFromGoogleSheet,
   updateProductsTabInGoogleSheet,
   getSavedSpreadsheetUrl,
-  ensureDatabaseSpreadsheet 
+  ensureDatabaseSpreadsheet,
+  uploadProductImageToDrive 
 } from './googleSheetsService';
 import { 
   saveUserCloudData, 
@@ -116,9 +117,17 @@ const App: React.FC = () => {
     const unsubscribe = initGoogleAuth(
       (user, token) => {
         setGoogleUser(user);
-        setGoogleAccessToken(token);
+        const effectiveToken = token || getGoogleAccessToken();
+        setGoogleAccessToken(effectiveToken);
         const url = getSavedSpreadsheetUrl(user.uid);
         if (url) setSpreadsheetUrl(url);
+
+        // Auto-synchronize with spreadsheet on account detection / system access
+        if (effectiveToken) {
+          setTimeout(() => {
+            handleCheckAndImportFromGoogleSheet(false).catch(() => {});
+          }, 1500);
+        }
       },
       () => {
         setGoogleUser(null);
@@ -145,22 +154,35 @@ const App: React.FC = () => {
           // Cloud data exists for this specific professional: load it!
           if (Array.isArray(cloudData.clients)) {
             setClients(cloudData.clients);
+            clientsRef.current = cloudData.clients;
+            safeSetItem('clients', JSON.stringify(cloudData.clients));
             safeSetItem(getScopedStorageKey('clients', uid), JSON.stringify(cloudData.clients));
+            saveToIndexedDB('clients', cloudData.clients);
           }
           if (Array.isArray(cloudData.products)) {
             setProducts(cloudData.products);
+            productsRef.current = cloudData.products;
+            safeSetItem('products', JSON.stringify(cloudData.products));
             safeSetItem(getScopedStorageKey('products', uid), JSON.stringify(cloudData.products));
+            saveToIndexedDB('products', cloudData.products);
           }
           if (Array.isArray(cloudData.savedQuotes)) {
             setSavedQuotes(cloudData.savedQuotes);
+            savedQuotesRef.current = cloudData.savedQuotes;
+            safeSetItem('savedQuotes', JSON.stringify(cloudData.savedQuotes));
             safeSetItem(getScopedStorageKey('savedQuotes', uid), JSON.stringify(cloudData.savedQuotes));
+            saveToIndexedDB('savedQuotes', cloudData.savedQuotes);
           }
           if (cloudData.companyInfo) {
             setCompanyInfo(cloudData.companyInfo);
+            companyInfoRef.current = cloudData.companyInfo;
+            safeSetItem('companyInfo', JSON.stringify(cloudData.companyInfo));
             safeSetItem(getScopedStorageKey('companyInfo', uid), JSON.stringify(cloudData.companyInfo));
           }
           if (cloudData.quoteSettings) {
             setQuoteSettings(cloudData.quoteSettings);
+            quoteSettingsRef.current = cloudData.quoteSettings;
+            safeSetItem('quoteSettings', JSON.stringify(cloudData.quoteSettings));
             safeSetItem(getScopedStorageKey('quoteSettings', uid), JSON.stringify(cloudData.quoteSettings));
           }
           if (cloudData.professionalSegment) {
@@ -171,20 +193,35 @@ const App: React.FC = () => {
             setCustomSegmentName(cloudData.customSegmentName);
             localStorage.setItem('custom_segment_name', cloudData.customSegmentName);
           }
+          if (cloudData.lastUpdated) {
+            lastServerUpdateRef.current = cloudData.lastUpdated;
+          }
         } else {
           // If cloudData is null (offline) or new user:
           // Check if this device already has scoped local data for this user
           const cachedClients = localStorage.getItem(getScopedStorageKey('clients', uid));
           if (cachedClients) {
-            try { setClients(JSON.parse(cachedClients)); } catch {}
+            try { 
+              const parsed = JSON.parse(cachedClients);
+              setClients(parsed); 
+              clientsRef.current = parsed;
+            } catch {}
           }
           const cachedProducts = localStorage.getItem(getScopedStorageKey('products', uid));
           if (cachedProducts) {
-            try { setProducts(JSON.parse(cachedProducts)); } catch {}
+            try { 
+              const parsed = JSON.parse(cachedProducts);
+              setProducts(parsed); 
+              productsRef.current = parsed;
+            } catch {}
           }
           const cachedQuotes = localStorage.getItem(getScopedStorageKey('savedQuotes', uid));
           if (cachedQuotes) {
-            try { setSavedQuotes(JSON.parse(cachedQuotes)); } catch {}
+            try { 
+              const parsed = JSON.parse(cachedQuotes);
+              setSavedQuotes(parsed); 
+              savedQuotesRef.current = parsed;
+            } catch {}
           }
 
           // If online and cloud document was found to be empty, initialize cloud with local data
@@ -207,7 +244,7 @@ const App: React.FC = () => {
 
     initUserCloud();
 
-    // Listen in real-time to changes from other devices (phone <-> computer)
+    // Listen in real-time to changes from other devices (Computer A <-> Computer B / phone)
     const unsubscribe = subscribeToUserCloudData(uid, (data) => {
       if (isCancelled) return;
       if (data.lastUpdated && data.lastUpdated <= lastServerUpdateRef.current) {
@@ -218,22 +255,35 @@ const App: React.FC = () => {
 
       if (Array.isArray(data.clients)) {
         setClients(data.clients);
+        clientsRef.current = data.clients;
+        safeSetItem('clients', JSON.stringify(data.clients));
         safeSetItem(getScopedStorageKey('clients', uid), JSON.stringify(data.clients));
+        saveToIndexedDB('clients', data.clients);
       }
       if (Array.isArray(data.products)) {
         setProducts(data.products);
+        productsRef.current = data.products;
+        safeSetItem('products', JSON.stringify(data.products));
         safeSetItem(getScopedStorageKey('products', uid), JSON.stringify(data.products));
+        saveToIndexedDB('products', data.products);
       }
       if (Array.isArray(data.savedQuotes)) {
         setSavedQuotes(data.savedQuotes);
+        savedQuotesRef.current = data.savedQuotes;
+        safeSetItem('savedQuotes', JSON.stringify(data.savedQuotes));
         safeSetItem(getScopedStorageKey('savedQuotes', uid), JSON.stringify(data.savedQuotes));
+        saveToIndexedDB('savedQuotes', data.savedQuotes);
       }
       if (data.companyInfo) {
         setCompanyInfo(data.companyInfo);
+        companyInfoRef.current = data.companyInfo;
+        safeSetItem('companyInfo', JSON.stringify(data.companyInfo));
         safeSetItem(getScopedStorageKey('companyInfo', uid), JSON.stringify(data.companyInfo));
       }
       if (data.quoteSettings) {
         setQuoteSettings(data.quoteSettings);
+        quoteSettingsRef.current = data.quoteSettings;
+        safeSetItem('quoteSettings', JSON.stringify(data.quoteSettings));
         safeSetItem(getScopedStorageKey('quoteSettings', uid), JSON.stringify(data.quoteSettings));
       }
       if (data.professionalSegment) {
@@ -244,6 +294,9 @@ const App: React.FC = () => {
         setCustomSegmentName(data.customSegmentName);
         localStorage.setItem('custom_segment_name', data.customSegmentName);
       }
+
+      setSheetAutoSyncNotice('🔄 Dados e imagens sincronizados em tempo real com outro computador!');
+      setTimeout(() => setSheetAutoSyncNotice(null), 4000);
     });
 
     return () => {
@@ -528,16 +581,19 @@ const App: React.FC = () => {
 
   // --- Real-time Instant Cloud Push Function ---
   const pushToCloud = React.useCallback(async (
-    customClients = clients,
-    customProducts = products,
-    customSavedQuotes = savedQuotes,
-    customCompanyInfo = companyInfo,
-    customQuoteSettings = quoteSettings,
+    customClients = clientsRef.current,
+    customProducts = productsRef.current,
+    customSavedQuotes = savedQuotesRef.current,
+    customCompanyInfo = companyInfoRef.current,
+    customQuoteSettings = quoteSettingsRef.current,
     targetRoom = syncRoomId
   ) => {
+    const now = Date.now();
+    lastServerUpdateRef.current = now;
+
     // 0. Push to isolated user cloud if authenticated (Every professional has their own private cloud db)
-    const uid = googleUser?.uid;
-    if (uid) {
+    const uid = googleUser?.uid || auth.currentUser?.uid;
+    if (uid && !auth.currentUser?.isAnonymous) {
       saveUserCloudData(uid, {
         clients: customClients,
         products: customProducts,
@@ -556,13 +612,10 @@ const App: React.FC = () => {
       if (customQuoteSettings) safeSetItem(getScopedStorageKey('quoteSettings', uid), JSON.stringify(customQuoteSettings));
     }
 
-    if (!targetRoom) return;
-
-    const now = Date.now();
-    lastServerUpdateRef.current = now;
+    const effectiveRoom = (targetRoom || (uid ? `usr_${uid}` : null) || 'empresa_principal').toLowerCase();
 
     const rawPayload = {
-      roomId: targetRoom,
+      roomId: effectiveRoom,
       clients: customClients,
       products: customProducts,
       savedQuotes: customSavedQuotes,
@@ -576,7 +629,7 @@ const App: React.FC = () => {
     // 1. Direct push to Firestore
     try {
       if (db) {
-        const roomDocRef = doc(db, 'sync_rooms', targetRoom);
+        const roomDocRef = doc(db, 'sync_rooms', effectiveRoom);
         await setDoc(roomDocRef, cleanPayload, { merge: true });
       }
     } catch (fbErr) {
@@ -588,10 +641,10 @@ const App: React.FC = () => {
       fetch('/api/sync/update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ roomId: targetRoom, data: cleanPayload }),
+        body: JSON.stringify({ roomId: effectiveRoom, data: cleanPayload }),
       }).catch(() => {});
     } catch (e) {}
-  }, [clients, products, savedQuotes, companyInfo, quoteSettings, syncRoomId]);
+  }, [googleUser?.uid, professionalSegment, customSegmentName, syncRoomId]);
 
   // --- Importação e Sincronização Automática a partir da Planilha Google ---
   const handleCheckAndImportFromGoogleSheet = React.useCallback(async (showNoChangesFeedback = true) => {
@@ -655,39 +708,42 @@ const App: React.FC = () => {
     }
   }, [googleAccessToken, googleUser, pushToCloud]);
 
-  // Listener para sincronização automática contínua da planilha do Google
+  // Listener para sincronização automática contínua e imediata ao acessar a planilha do Google
   useEffect(() => {
-    if (!googleUser || !googleAccessToken) return;
+    const token = googleAccessToken || getGoogleAccessToken();
+    if (!token) return;
 
-    // 1. Verificação suave 3.5 segundos após conectar
+    // 1. Verificação suave 1.5 segundos após iniciar
     const timer = setTimeout(() => {
-      handleCheckAndImportFromGoogleSheet(false);
-    }, 3500);
+      handleCheckAndImportFromGoogleSheet(false).catch(() => {});
+    }, 1500);
 
-    // 2. Verificação ao retornar o foco à aba (ex: o usuário acabou de cadastrar produtos/clientes na aba da planilha)
-    const handleFocus = () => {
+    // 2. Verificação ao acessar o sistema ou retornar o foco à aba (ex: cadastrado no outro PC ou na planilha)
+    const handleSystemAccessOrFocus = () => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        handleCheckAndImportFromGoogleSheet(false);
+        handleCheckAndImportFromGoogleSheet(false).catch(() => {});
       }
     };
 
-    window.addEventListener('focus', handleFocus);
-    document.addEventListener('visibilitychange', handleFocus);
+    window.addEventListener('focus', handleSystemAccessOrFocus);
+    window.addEventListener('pageshow', handleSystemAccessOrFocus);
+    document.addEventListener('visibilitychange', handleSystemAccessOrFocus);
 
-    // 3. Verificação periódica a cada 35 segundos caso a aba permaneça aberta
+    // 3. Verificação periódica contínua a cada 25 segundos caso a aba permaneça aberta
     const interval = setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-        handleCheckAndImportFromGoogleSheet(false);
+        handleCheckAndImportFromGoogleSheet(false).catch(() => {});
       }
-    }, 35000);
+    }, 25000);
 
     return () => {
       clearTimeout(timer);
-      window.removeEventListener('focus', handleFocus);
-      document.removeEventListener('visibilitychange', handleFocus);
+      window.removeEventListener('focus', handleSystemAccessOrFocus);
+      window.removeEventListener('pageshow', handleSystemAccessOrFocus);
+      document.removeEventListener('visibilitychange', handleSystemAccessOrFocus);
       clearInterval(interval);
     };
-  }, [googleUser?.uid, googleAccessToken, handleCheckAndImportFromGoogleSheet]);
+  }, [googleAccessToken, handleCheckAndImportFromGoogleSheet]);
 
   // --- Initialization Effect ---
   useEffect(() => {
@@ -905,25 +961,30 @@ const App: React.FC = () => {
 
             if (Array.isArray(data.clients)) {
               setClients(data.clients);
+              clientsRef.current = data.clients;
               safeSetItem('clients', JSON.stringify(data.clients));
               saveToIndexedDB('clients', data.clients);
             }
             if (Array.isArray(data.products)) {
               setProducts(data.products);
+              productsRef.current = data.products;
               safeSetItem('products', JSON.stringify(data.products));
               saveToIndexedDB('products', data.products);
             }
             if (Array.isArray(data.savedQuotes)) {
               setSavedQuotes(data.savedQuotes);
+              savedQuotesRef.current = data.savedQuotes;
               safeSetItem('savedQuotes', JSON.stringify(data.savedQuotes));
               saveToIndexedDB('savedQuotes', data.savedQuotes);
             }
             if (data.companyInfo) {
               setCompanyInfo(data.companyInfo);
+              companyInfoRef.current = data.companyInfo;
               safeSetItem('companyInfo', JSON.stringify(data.companyInfo));
             }
             if (data.quoteSettings) {
               setQuoteSettings(data.quoteSettings);
+              quoteSettingsRef.current = data.quoteSettings;
               safeSetItem('quoteSettings', JSON.stringify(data.quoteSettings));
             }
           }
@@ -951,25 +1012,30 @@ const App: React.FC = () => {
 
           if (Array.isArray(data.clients)) {
             setClients(data.clients);
+            clientsRef.current = data.clients;
             safeSetItem('clients', JSON.stringify(data.clients));
             saveToIndexedDB('clients', data.clients);
           }
           if (Array.isArray(data.products)) {
             setProducts(data.products);
+            productsRef.current = data.products;
             safeSetItem('products', JSON.stringify(data.products));
             saveToIndexedDB('products', data.products);
           }
           if (Array.isArray(data.savedQuotes)) {
             setSavedQuotes(data.savedQuotes);
+            savedQuotesRef.current = data.savedQuotes;
             safeSetItem('savedQuotes', JSON.stringify(data.savedQuotes));
             saveToIndexedDB('savedQuotes', data.savedQuotes);
           }
           if (data.companyInfo) {
             setCompanyInfo(data.companyInfo);
+            companyInfoRef.current = data.companyInfo;
             safeSetItem('companyInfo', JSON.stringify(data.companyInfo));
           }
           if (data.quoteSettings) {
             setQuoteSettings(data.quoteSettings);
+            quoteSettingsRef.current = data.quoteSettings;
             safeSetItem('quoteSettings', JSON.stringify(data.quoteSettings));
           }
         }
@@ -1116,9 +1182,10 @@ const App: React.FC = () => {
     const newClient = { ...client, code: clientCode, id: crypto.randomUUID() };
     const updatedClients = [...clients, newClient];
     setClients(updatedClients);
+    clientsRef.current = updatedClients;
     safeSetItem('clients', JSON.stringify(updatedClients));
     saveToIndexedDB('clients', updatedClients);
-    pushToCloud(updatedClients, products, savedQuotes, companyInfo, quoteSettings);
+    pushToCloud(updatedClients, productsRef.current, savedQuotesRef.current, companyInfoRef.current, quoteSettingsRef.current);
 
     // Auto-save new client to Google Sheets in the user's Google Drive
     const token = googleAccessToken || getGoogleAccessToken();
@@ -1132,17 +1199,19 @@ const App: React.FC = () => {
   const updateClient = (updatedClient: Client) => {
     const updatedClients = clients.map((c) => (c.id === updatedClient.id ? updatedClient : c));
     setClients(updatedClients);
+    clientsRef.current = updatedClients;
     safeSetItem('clients', JSON.stringify(updatedClients));
     saveToIndexedDB('clients', updatedClients);
-    pushToCloud(updatedClients, products, savedQuotes, companyInfo, quoteSettings);
+    pushToCloud(updatedClients, productsRef.current, savedQuotesRef.current, companyInfoRef.current, quoteSettingsRef.current);
   };
 
   const deleteClient = (id: string) => {
     const updatedClients = clients.filter((c) => c.id !== id);
     setClients(updatedClients);
+    clientsRef.current = updatedClients;
     safeSetItem('clients', JSON.stringify(updatedClients));
     saveToIndexedDB('clients', updatedClients);
-    pushToCloud(updatedClients, products, savedQuotes, companyInfo, quoteSettings);
+    pushToCloud(updatedClients, productsRef.current, savedQuotesRef.current, companyInfoRef.current, quoteSettingsRef.current);
   };
 
   const addProduct = (product: Omit<Product, 'id'>) => {
@@ -1153,9 +1222,10 @@ const App: React.FC = () => {
     };
     const updatedProducts = [...products, newProduct];
     setProducts(updatedProducts);
+    productsRef.current = updatedProducts;
     safeSetItem('products', JSON.stringify(updatedProducts));
     saveToIndexedDB('products', updatedProducts);
-    pushToCloud(clients, updatedProducts, savedQuotes, companyInfo, quoteSettings);
+    pushToCloud(clientsRef.current, updatedProducts, savedQuotesRef.current, companyInfoRef.current, quoteSettingsRef.current);
 
     // Auto-save new product to Google Sheets in the user's Google Drive
     const token = googleAccessToken || getGoogleAccessToken();
@@ -1163,6 +1233,24 @@ const App: React.FC = () => {
       appendProductsToGoogleSheet(token, [newProduct], googleUser?.uid).catch((err) => {
         console.warn('Não foi possível adicionar produto à planilha Google:', err);
       });
+
+      // Special attention to product images: if image is base64, upload to Drive in background and upgrade image to permanent Drive thumbnail URL
+      if (newProduct.image && newProduct.image.startsWith('data:image/')) {
+        uploadProductImageToDrive(token, newProduct.image, newProduct.code || newProduct.name).then((res) => {
+          if (res?.imageUrl) {
+            setProducts((prev) => {
+              const next = prev.map((p) => p.id === newProduct.id ? { ...p, image: res.imageUrl } : p);
+              productsRef.current = next;
+              safeSetItem('products', JSON.stringify(next));
+              saveToIndexedDB('products', next);
+              pushToCloud(clientsRef.current, next, savedQuotesRef.current, companyInfoRef.current, quoteSettingsRef.current);
+              return next;
+            });
+          }
+        }).catch((err) => {
+          console.warn('Aviso no upload da imagem do produto para o Drive:', err);
+        });
+      }
     }
   };
 
@@ -1175,9 +1263,10 @@ const App: React.FC = () => {
       }));
       const updatedProducts = [...products, ...productsWithIds];
       setProducts(updatedProducts);
+      productsRef.current = updatedProducts;
       safeSetItem('products', JSON.stringify(updatedProducts));
       saveToIndexedDB('products', updatedProducts);
-      pushToCloud(clients, updatedProducts, savedQuotes, companyInfo, quoteSettings);
+      pushToCloud(clientsRef.current, updatedProducts, savedQuotesRef.current, companyInfoRef.current, quoteSettingsRef.current);
 
       // Auto-save imported products to Google Sheets in the user's Google Drive
       const token = googleAccessToken || getGoogleAccessToken();
@@ -1195,24 +1284,44 @@ const App: React.FC = () => {
     };
     const updatedProducts = products.map((p) => (p.id === updatedProduct.id ? productWithTimestamp : p));
     setProducts(updatedProducts);
+    productsRef.current = updatedProducts;
     safeSetItem('products', JSON.stringify(updatedProducts));
     saveToIndexedDB('products', updatedProducts);
-    pushToCloud(clients, updatedProducts, savedQuotes, companyInfo, quoteSettings);
+    pushToCloud(clientsRef.current, updatedProducts, savedQuotesRef.current, companyInfoRef.current, quoteSettingsRef.current);
 
     const token = googleAccessToken || getGoogleAccessToken();
     if (token) {
       updateProductsTabInGoogleSheet(token, updatedProducts, googleUser?.uid).catch((err) => {
         console.warn('Não foi possível atualizar produtos na planilha Google:', err);
       });
+
+      // Special attention to product images: if updated image is base64, upload to Drive in background and upgrade image to permanent Drive thumbnail URL
+      if (updatedProduct.image && updatedProduct.image.startsWith('data:image/')) {
+        uploadProductImageToDrive(token, updatedProduct.image, updatedProduct.code || updatedProduct.name).then((res) => {
+          if (res?.imageUrl) {
+            setProducts((prev) => {
+              const next = prev.map((p) => p.id === updatedProduct.id ? { ...p, image: res.imageUrl } : p);
+              productsRef.current = next;
+              safeSetItem('products', JSON.stringify(next));
+              saveToIndexedDB('products', next);
+              pushToCloud(clientsRef.current, next, savedQuotesRef.current, companyInfoRef.current, quoteSettingsRef.current);
+              return next;
+            });
+          }
+        }).catch((err) => {
+          console.warn('Aviso no upload da imagem atualizada para o Drive:', err);
+        });
+      }
     }
   };
 
   const deleteProduct = (id: string) => {
     const updatedProducts = products.filter((p) => p.id !== id);
     setProducts(updatedProducts);
+    productsRef.current = updatedProducts;
     safeSetItem('products', JSON.stringify(updatedProducts));
     saveToIndexedDB('products', updatedProducts);
-    pushToCloud(clients, updatedProducts, savedQuotes, companyInfo, quoteSettings);
+    pushToCloud(clientsRef.current, updatedProducts, savedQuotesRef.current, companyInfoRef.current, quoteSettingsRef.current);
 
     const token = googleAccessToken || getGoogleAccessToken();
     if (token) {
@@ -1304,8 +1413,8 @@ const App: React.FC = () => {
     safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
     saveToIndexedDB('savedQuotes', updatedQuotes);
 
-    // 6. Push to Cloud / Firestore
-    pushToCloud(clients, updatedProducts, updatedQuotes, companyInfo, currentSettings);
+    // 6. Push to Cloud / Firestore in real time to all connected devices
+    pushToCloud(clientsRef.current, updatedProducts, updatedQuotes, companyInfoRef.current, currentSettings);
 
     // 7. Auto-save new quote AND update product stock in Google Sheets
     const token = googleAccessToken || getGoogleAccessToken();
@@ -1377,7 +1486,7 @@ const App: React.FC = () => {
     savedQuotesRef.current = updatedQuotes;
     safeSetItem('savedQuotes', JSON.stringify(updatedQuotes));
     saveToIndexedDB('savedQuotes', updatedQuotes);
-    pushToCloud(clients, updatedProducts, updatedQuotes, companyInfo, quoteSettings);
+    pushToCloud(clientsRef.current, updatedProducts, updatedQuotes, companyInfoRef.current, quoteSettingsRef.current);
 
     if (quoteToEdit && quoteToEdit.id === id) {
       setQuoteToEdit(null);

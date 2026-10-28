@@ -378,6 +378,8 @@ export const formatImageCell = async (accessToken: string, product: Product): Pr
     try {
       const uploadRes = await uploadProductImageToDrive(accessToken, imgStr, product.code || product.name);
       if (uploadRes?.imageUrl) {
+        // Upgrade product.image in memory to the permanent Drive thumbnail URL
+        product.image = uploadRes.imageUrl;
         return `=IMAGE("${uploadRes.imageUrl}")`;
       }
     } catch (e) {
@@ -391,6 +393,32 @@ export const formatImageCell = async (accessToken: string, product: Product): Pr
   }
 
   return '';
+};
+
+/**
+ * Uploads a product's base64 image to Google Drive and returns the permanent direct thumbnail URL.
+ * If the image is already a web URL, returns it immediately.
+ */
+export const syncProductImageToDrive = async (
+  accessToken: string,
+  product: Product
+): Promise<string | null> => {
+  if (!product.image || !product.image.trim()) return null;
+  const imgStr = product.image.trim();
+  if (imgStr.startsWith('http://') || imgStr.startsWith('https://')) {
+    return imgStr;
+  }
+  if (imgStr.startsWith('data:')) {
+    try {
+      const res = await uploadProductImageToDrive(accessToken, imgStr, product.code || product.name);
+      if (res?.imageUrl) {
+        return res.imageUrl;
+      }
+    } catch (err) {
+      console.warn('Erro ao sincronizar foto com Google Drive:', err);
+    }
+  }
+  return null;
 };
 
 /**

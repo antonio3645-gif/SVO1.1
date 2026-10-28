@@ -5,9 +5,9 @@ import type { SavedQuote, Product } from '../types';
  */
 export function compressImage(
   dataUrl: string, 
-  maxWidth = 400, 
-  maxHeight = 400, 
-  quality = 0.7
+  maxWidth = 320, 
+  maxHeight = 320, 
+  quality = 0.65
 ): Promise<string> {
   return new Promise((resolve) => {
     if (!dataUrl || !dataUrl.startsWith('data:image/')) {
